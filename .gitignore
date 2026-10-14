@@ -1,0 +1,18 @@
+# Owner-only plans and working notes. Keep shared project documentation tracked.
+/PLAN.md
+/AGENTS.md
+/SURABAR_PLAN.md
+/docs/local/
+*.local.md
+
+# Source downloads (redistribution must be reviewed before bundling).
+/tools/data/raw/
+
+# Local macOS, Python, Swift, and Xcode artifacts.
+.DS_Store
+__pycache__/
+*.py[cod]
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
