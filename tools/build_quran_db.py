@@ -19,6 +19,8 @@ import tempfile
 SCHEMA_VERSION = 1
 SURAH_COUNT = 114
 AYAH_COUNT = 6236
+# Quran divisions: (manifest key, JSON number field, count).
+DIVISIONS = (("juz", "juz_number", 30), ("hizb", "hizb_number", 60), ("rub", "rub_number", 240))
 LINE_TYPES = ("ayah", "surah_name", "basmallah")
 TOOLS = Path(__file__).resolve().parent
 
@@ -36,6 +38,9 @@ CREATE TABLE surahs (
 CREATE TABLE ayahs (
     surah INTEGER NOT NULL REFERENCES surahs(number),
     ayah INTEGER NOT NULL,
+    juz INTEGER NOT NULL,
+    hizb INTEGER NOT NULL,
+    rub INTEGER NOT NULL,
     PRIMARY KEY (surah, ayah)
 ) WITHOUT ROWID;
 CREATE TABLE layouts (
@@ -187,6 +192,22 @@ def read_ayahs(path: Path) -> list:
     return sorted(rows)
 
 
+def read_division(path: Path, name: str, number_field: str) -> dict:
+    """Maps (surah, ayah) to a juz, hizb, or rub number using its verse_mapping ranges."""
+    division = {}
+    for record in records(load_json(path), name):
+        label = f"{name}[{record.get(number_field)}]"
+        number = int(field(record, label, number_field))
+        for surah, span in field(record, label, "verse_mapping").items():
+            first, _, last = str(span).partition("-")
+            for ayah in range(int(first), int(last or first) + 1):
+                key = (int(surah), ayah)
+                if key in division:
+                    raise SourceError(f"{label}: {surah}:{ayah} is also in {name} {division[key]}")
+                division[key] = number
+    return division
+
+
 def read_words(path: Path, layout: str) -> list:
     label = f"{layout} words"
     connection = open_source_db(path)
@@ -279,6 +300,8 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
 
     need(manifest["metadata"]["surahs"], "surahs")
     need(manifest["metadata"]["ayahs"], "ayahs")
+    for name, _, _ in DIVISIONS:
+        need(manifest["metadata"][name], name)
     for layout in layouts:
         spec = manifest["layouts"].get(layout)
         if spec is None:
@@ -295,6 +318,13 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
     try:
         surahs = read_surahs(sources["surahs"])
         ayahs = read_ayahs(sources["ayahs"])
+        divisions = [read_division(sources[name], name, number_field)
+                     for name, number_field, _ in DIVISIONS]
+        missing = [f"{name} for {s}:{a}" for (s, a) in ayahs
+                   for (name, _, _), division in zip(DIVISIONS, divisions) if (s, a) not in division]
+        if missing:
+            raise SourceError(f"{len(missing)} ayahs lack a division, first {missing[0]}")
+        ayahs = [(s, a, *(division[(s, a)] for division in divisions)) for s, a in ayahs]
         layout_rows, words, lines = [], [], []
         for layout in layouts:
             spec = manifest["layouts"][layout]
@@ -319,7 +349,7 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
             connection.executescript(SCHEMA)
             with connection:
                 connection.executemany("INSERT INTO surahs VALUES (?, ?, ?, ?, ?, ?, ?)", surahs)
-                connection.executemany("INSERT INTO ayahs VALUES (?, ?)", ayahs)
+                connection.executemany("INSERT INTO ayahs VALUES (?, ?, ?, ?, ?)", ayahs)
                 connection.executemany("INSERT INTO layouts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                        sorted(layout_rows))
                 connection.executemany("INSERT INTO words VALUES (?, ?, ?, ?, ?, ?)", sorted(words))
@@ -341,6 +371,7 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
         errors = verify(temporary)
         if errors:
             return errors
+        temporary.chmod(0o644)
         temporary.replace(output)
     finally:
         temporary.unlink(missing_ok=True)
@@ -486,6 +517,11 @@ def verify(path: Path) -> list:
                 "SELECT ayah FROM ayahs WHERE surah = ? ORDER BY ayah", (number,))]
             if ayahs != list(range(1, count + 1)):
                 errors.append(f"surah {number} ayahs are not exactly 1..{count}")
+        for name, _, count in DIVISIONS:
+            values = [row[0] for row in connection.execute(f"SELECT {name} FROM ayahs ORDER BY surah, ayah")]
+            if values and (values[0] != 1 or values[-1] != count or
+                           any(b - a not in (0, 1) for a, b in zip(values, values[1:]))):
+                errors.append(f"{name} numbers do not run 1..{count} in ayah order without gaps")
         bismillah_surahs = {number for number, _, flag in surahs if flag}
         if 1 in bismillah_surahs or 9 in bismillah_surahs:
             errors.append("surahs 1 and 9 must not have a separate basmallah")

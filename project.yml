@@ -36,6 +36,8 @@ targets:
     dependencies:
       - package: SurabarKit
         product: MushafRendering
+      - package: SurabarKit
+        product: QuranStore
     settings:
       base:
         PRODUCT_NAME: Surabar

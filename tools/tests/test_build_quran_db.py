@@ -77,6 +77,17 @@ class SyntheticSources:
                 ayahs[str(identifier)] = {"id": identifier, "surah_number": surah,
                                           "ayah_number": ayah, "verse_key": f"{surah}:{ayah}"}
         (metadata / "ayahs.json").write_text(json.dumps(ayahs), encoding="utf-8")
+        ordered = [(r["surah_number"], r["ayah_number"]) for r in ayahs.values()]
+        for name, field, count in (("juz", "juz_number", 30), ("hizb", "hizb_number", 60), ("rub", "rub_number", 240)):
+            size = -(-len(ordered) // count)
+            division = {}
+            for number in range(1, count + 1):
+                mapping = {}
+                for surah, ayah in ordered[(number - 1) * size:number * size]:
+                    first = mapping.get(str(surah), f"{ayah}-{ayah}").split("-")[0]
+                    mapping[str(surah)] = f"{first}-{ayah}"
+                division[str(number)] = {field: number, "verse_mapping": mapping}
+            (metadata / f"{name}.json").write_text(json.dumps(division), encoding="utf-8")
 
         words = self.word_rows() if words is None else words
         lines = self.line_rows(words) if lines is None else lines
@@ -104,7 +115,10 @@ class SyntheticSources:
         manifest = {
             "manifest_version": 1,
             "metadata": {"surahs": entry("metadata/surahs.json"),
-                         "ayahs": entry("metadata/ayahs.json")},
+                         "ayahs": entry("metadata/ayahs.json"),
+                         "juz": entry("metadata/juz.json"),
+                         "hizb": entry("metadata/hizb.json"),
+                         "rub": entry("metadata/rub.json")},
             "layouts": {
                 "sample": {"name": "Synthetic", "page_count": page_count,
                            "lines_per_page": LINES_PER_PAGE, "verified": True,
@@ -150,6 +164,8 @@ class BuildQuranDatabaseTests(unittest.TestCase):
             text = connection.execute("SELECT text FROM words WHERE layout = 'sample' "
                                       "AND surah = 2 AND ayah = 5 AND position = 1").fetchone()[0]
             self.assertEqual(text, "اختبار")
+            self.assertEqual(connection.execute("SELECT juz, hizb, rub FROM ayahs WHERE surah = 114 "
+                                                "AND ayah = 54").fetchone(), (30, 60, 240))
             pages = connection.execute("SELECT COUNT(*) FROM ayah_pages WHERE layout = 'sample' "
                                        "GROUP BY surah, ayah HAVING COUNT(*) > 1").fetchall()
             self.assertTrue(pages, "fixture should include ayahs spanning two pages")

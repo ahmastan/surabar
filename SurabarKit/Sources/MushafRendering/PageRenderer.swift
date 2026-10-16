@@ -9,6 +9,12 @@ public struct PageColors: Sendable {
     public var text: CGColor
     public var highlight: CGColor
 
+    public init(background: CGColor, text: CGColor, highlight: CGColor) {
+        self.background = background
+        self.text = text
+        self.highlight = highlight
+    }
+
     public static let light = PageColors(background: CGColor(gray: 1, alpha: 1), text: CGColor(gray: 0, alpha: 1),
                                          highlight: CGColor(red: 1, green: 0.85, blue: 0.2, alpha: 0.35))
 }
@@ -26,7 +32,11 @@ public enum PageRenderer {
         context.setFillColor(colors.background)
         context.fill(CGRect(origin: .zero, size: layout.size))
         context.setFillColor(colors.highlight)
-        highlighted.forEach { context.fill(flipped($0)) }
+        for rect in highlighted {
+            let box = flipped(rect).insetBy(dx: -2, dy: 0)
+            context.addPath(CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil))
+            context.fillPath()
+        }
         if outlineItems {
             context.setLineWidth(0.5)
             for item in layout.items {

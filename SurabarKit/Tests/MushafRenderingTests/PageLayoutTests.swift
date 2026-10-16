@@ -89,3 +89,27 @@ private func layout(_ lines: [MushafLine], width: Double = ReaderSize.medium.wid
     let data = try Data(contentsOf: url)
     #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
 }
+
+@Test func surahTitlesUseTheTitleFont() {
+    // A Latin-only page font would report missing glyphs if it were used for the Arabic title.
+    let title = MushafLine(number: 1, kind: .surahName, isCentered: true, items: [LineItem(text: "سورة آل عمران")])
+    let page = MushafPage(number: 1, linesPerPage: 15, lines: [title, line(2, centered: false)])
+    let result = PageLayoutEngine.layout(page, width: 440, font: arabic, style: PageStyle(calibration: 0.03))
+    #expect(result.diagnostics.missingGlyphs.isEmpty)
+    let titleItem = result.items.first { $0.lineIndex == 0 }!
+    let wordItem = result.items.first { $0.lineIndex == 1 }!
+    #expect(titleItem.typographicRect.height < wordItem.typographicRect.height * 1.5)
+}
+
+@Test func pageHeightMatchesLayoutAndFittingWidthFits() {
+    let page = MushafPage(number: 1, linesPerPage: 15, lines: [line(1, centered: false)])
+    let style = PageStyle(calibration: Calibration.ratio(for: [page], font: arabic).ratio)
+    let laidOut = PageLayoutEngine.layout(page, width: 440, font: arabic, style: style)
+    let height = PageLayoutEngine.pageHeight(width: 440, linesPerPage: 15, font: arabic, style: style)
+    #expect(abs(height - Double(laidOut.size.height)) < 0.001)
+    #expect(PageLayoutEngine.width(fitting: height + 50, maximumWidth: 440, linesPerPage: 15, font: arabic, style: style) == 440)
+    let narrower = PageLayoutEngine.width(fitting: height * 0.7, maximumWidth: 440, linesPerPage: 15, font: arabic, style: style)
+    #expect(narrower < 440)
+    let fitted = PageLayoutEngine.pageHeight(width: narrower, linesPerPage: 15, font: arabic, style: style)
+    #expect(abs(fitted - height * 0.7) < 0.5)
+}

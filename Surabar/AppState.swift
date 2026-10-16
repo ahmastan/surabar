@@ -28,6 +28,9 @@ final class AppState {
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
         static let translation = "showTranslation"
+        static let script = "readingScript"
+        static let pages = "readingPages"
+        static let selection = "selectedAyah"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -53,6 +56,21 @@ final class AppState {
         didSet { defaults.set(showTranslation, forKey: Keys.translation) }
     }
 
+    /// The layout being read: "uthmani" or "indopak".
+    var script: String {
+        didSet { defaults.set(script, forKey: Keys.script) }
+    }
+
+    /// The last page read in each layout. Page numbers are per layout and never identify an ayah.
+    var pages: [String: Int] {
+        didSet { defaults.set(pages, forKey: Keys.pages) }
+    }
+
+    /// The selected ayah, stored as "surah:ayah".
+    var selectedAyah: AyahKey {
+        didSet { defaults.set(selectedAyah.description, forKey: Keys.selection) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         size = defaults.string(forKey: Keys.size).flatMap(ReaderSize.init(rawValue:)) ?? .medium
@@ -60,6 +78,9 @@ final class AppState {
         keepOnTop = defaults.object(forKey: Keys.keepOnTop) as? Bool ?? true
         isDetached = defaults.bool(forKey: Keys.detached)
         showTranslation = defaults.object(forKey: Keys.translation) as? Bool ?? true
+        script = defaults.string(forKey: Keys.script) ?? "uthmani"
+        pages = defaults.dictionary(forKey: Keys.pages) as? [String: Int] ?? [:]
+        selectedAyah = defaults.string(forKey: Keys.selection).flatMap(AyahKey.init(string:)) ?? AyahKey(surah: 1, ayah: 1)
     }
 }
 

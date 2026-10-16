@@ -4,7 +4,7 @@ An open-source macOS menu bar Quran reader, being built around authentic mushaf 
 
 ## Development status
 
-Surabar is in early development. The repository contains a menu bar app shell, source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
+Surabar is in early development. The repository contains the menu bar app with an offline mushaf reader (Uthmani and IndoPak), source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
 
 Planned features include Uthmani and IndoPak pages, ayah-level recitation highlighting, offline reading and audio downloads, translations, bookmarks, highlights, and notes. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
 
@@ -25,9 +25,12 @@ The tool reports SHA-256 hashes and JSON/SQLite structure without rewriting the 
 Requirements: macOS 14 or later, Xcode 16 or later, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml` and is not committed. Generate it once after cloning, and again only when `project.yml` changes; Xcode picks up added and removed source files by itself.
 
 ```sh
+python3 tools/prepare_app_resources.py   # builds the Quran database and gathers fonts and translation
 xcodegen generate
 open Surabar.xcodeproj
 ```
+
+`prepare_app_resources.py` needs the source downloads described below and writes to `Surabar/Resources/Bundled/`, which is not committed while redistribution terms are reviewed. Without it the app still builds and explains that the Quran data is missing.
 
 Choose the **Surabar** scheme and **My Mac**, then press Run (⌘R). Builds are signed to run locally, so no Apple Developer account is needed. From the command line: `xcodebuild -project Surabar.xcodeproj -scheme Surabar -destination 'platform=macOS' test`.
 
@@ -36,9 +39,11 @@ Choose the **Surabar** scheme and **My Mac**, then press Run (⌘R). Builds are 
 `tools/quran_sources.json` records each source's URL, local path, and SHA-256 hash. After the sources are downloaded and recorded there, build and verify the database:
 
 ```sh
-python3 tools/build_quran_db.py build --output build/quran.sqlite --layout indopak
+python3 tools/build_quran_db.py build --output build/quran.sqlite --layout uthmani --layout indopak
 python3 tools/build_quran_db.py verify build/quran.sqlite
 ```
+
+QUL does not offer the Unicode Uthmani layout as a download. `tools/convert_qul_preview_layout.py` converts saved copies of its public preview pages into the same format; the manifest records the exact command, and the few preview pages with defects that are taken from QUL's 1421H glyph layout instead.
 
 The builder refuses files whose hashes differ from the manifest, and layouts not yet verified as matching their word data. It copies source text unchanged. Verification checks surah and ayah counts, word order and positions, page and line numbering, complete non-overlapping line coverage of every word, surah headers, basmallah lines, and a content digest. It needs only the generated database.
 

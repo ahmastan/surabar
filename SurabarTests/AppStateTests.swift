@@ -19,6 +19,9 @@ struct AppStateTests {
         #expect(state.keepOnTop)
         #expect(!state.isDetached)
         #expect(state.showTranslation)
+        #expect(state.script == "uthmani")
+        #expect(state.selectedAyah == AyahKey(surah: 1, ayah: 1))
+        #expect(state.pages.isEmpty)
     }
 
     @Test func preferencesSurviveRelaunch() {
@@ -29,6 +32,9 @@ struct AppStateTests {
         first.keepOnTop = false
         first.isDetached = true
         first.showTranslation = false
+        first.script = "indopak"
+        first.pages = ["uthmani": 50, "indopak": 52]
+        first.selectedAyah = AyahKey(surah: 2, ayah: 255)
 
         let relaunched = AppState(defaults: defaults)
         #expect(relaunched.size == .large)
@@ -36,6 +42,9 @@ struct AppStateTests {
         #expect(!relaunched.keepOnTop)
         #expect(relaunched.isDetached)
         #expect(!relaunched.showTranslation)
+        #expect(relaunched.script == "indopak")
+        #expect(relaunched.pages == ["uthmani": 50, "indopak": 52])
+        #expect(relaunched.selectedAyah == AyahKey(surah: 2, ayah: 255))
     }
 
     @Test func unknownStoredValuesFallBackToDefaults() {
@@ -51,22 +60,23 @@ struct AppStateTests {
 struct ReaderLayoutTests {
     @Test func popoverUsesPlannedWidths() {
         for (size, width) in [(ReaderSize.small, 340.0), (.medium, 440.0), (.large, 560.0)] {
-            #expect(Double(ReaderLayout.popoverSize(width: size.width, showTranslation: true, availableHeight: 2000).width) == width)
+            let popover = ReaderLayout.popoverSize(width: size.width, pageHeight: 500, showTranslation: true, availableHeight: 2000)
+            #expect(Double(popover.width) == width)
         }
     }
 
-    @Test func popoverHeightIsClampedToTheScreen() {
-        let tall = ReaderLayout.popoverSize(width: 560, showTranslation: true, availableHeight: 2000)
-        #expect(Double(tall.height) == ReaderLayout.preferredHeight(width: 560, showTranslation: true))
-        let short = ReaderLayout.popoverSize(width: 560, showTranslation: true, availableHeight: 700)
+    @Test func popoverHeightFitsThePageAndIsClampedToTheScreen() {
+        let tall = ReaderLayout.popoverSize(width: 560, pageHeight: 700.4, showTranslation: true, availableHeight: 2000)
+        #expect(Double(tall.height) == ReaderLayout.chromeHeight(showTranslation: true) + 701)
+        let short = ReaderLayout.popoverSize(width: 560, pageHeight: 700, showTranslation: true, availableHeight: 700)
         #expect(Double(short.height) == 700 - ReaderLayout.screenMargin)
-        let tiny = ReaderLayout.popoverSize(width: 340, showTranslation: false, availableHeight: 200)
+        let tiny = ReaderLayout.popoverSize(width: 340, pageHeight: 400, showTranslation: false, availableHeight: 200)
         #expect(Double(tiny.height) == ReaderLayout.minimumHeight)
     }
 
     @Test func translationStripAddsHeight() {
-        let with = ReaderLayout.preferredHeight(width: 440, showTranslation: true)
-        let without = ReaderLayout.preferredHeight(width: 440, showTranslation: false)
+        let with = ReaderLayout.preferredHeight(pageHeight: 500, showTranslation: true)
+        let without = ReaderLayout.preferredHeight(pageHeight: 500, showTranslation: false)
         #expect(with - without == ReaderLayout.translationHeight)
     }
 }

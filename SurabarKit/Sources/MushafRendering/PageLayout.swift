@@ -11,6 +11,8 @@ public struct PageStyle: Sendable {
     public var verticalInset: Double = 10
     /// Multiplier on the font's ascent plus descent.
     public var lineSpacing: Double = 1.0
+    /// Surah title size relative to the Quran text.
+    public var titleScale: Double = 0.8
 
     public init(calibration: Double) {
         self.calibration = calibration
@@ -80,7 +82,10 @@ public struct PageLayout: @unchecked Sendable {
 }
 
 public enum PageLayoutEngine {
-    public static func layout(_ page: MushafPage, width: Double, font: MushafFont, style: PageStyle) -> PageLayout {
+    /// Lays out a page. Surah titles use `titleFont`, because title text comes from metadata and may
+    /// contain characters that a Quran font does not encode.
+    public static func layout(_ page: MushafPage, width: Double, font: MushafFont, style: PageStyle,
+                              titleFont: MushafFont = .systemArabic) -> PageLayout {
         let columnWidth = width - 2 * style.horizontalInset
         let fontSize = columnWidth * style.calibration
         let ctFont = font.sized(fontSize)
@@ -92,12 +97,15 @@ public enum PageLayoutEngine {
         // Short pages, such as the opening pages, are centred vertically.
         let top = style.verticalInset + Double(max(0, page.linesPerPage - page.lines.count)) * lineHeight / 2
         let spaceWidth = advance(of: " ", font: ctFont)
+        let titleCTFont = titleFont.sized(fontSize * style.titleScale)
 
         var items: [LaidOutItem] = []
         var diagnostics = LayoutDiagnostics()
         for (lineIndex, line) in page.lines.enumerated() {
+            let isTitle = line.kind == .surahName
+            let lineFont = isTitle ? titleFont : font
             let shaped = line.items.map { item -> (LineItem, CTLine, Double) in
-                let ctLine = makeLine(item.text, font: ctFont)
+                let ctLine = makeLine(item.text, font: isTitle ? titleCTFont : ctFont)
                 return (item, ctLine, CTLineGetTypographicBounds(ctLine, nil, nil, nil))
             }
             let widths = shaped.reduce(0) { $0 + $1.2 }
@@ -123,7 +131,7 @@ public enum PageLayoutEngine {
                     baseline: CGPoint(x: x, y: baselineY),
                     typographicRect: CGRect(x: x, y: baselineY - ascent, width: itemWidth, height: ascent + descent),
                     inkRect: ink.isNull ? .null : CGRect(x: x + ink.minX, y: baselineY - ink.maxY, width: ink.width, height: ink.height),
-                    missingCharacters: missingCharacters(in: ctLine, text: item.text, expected: font.postScriptName))
+                    missingCharacters: missingCharacters(in: ctLine, text: item.text, expected: lineFont.postScriptName))
                 if !laidOut.missingCharacters.isEmpty {
                     diagnostics.missingGlyphs.append((lineIndex, item.text, laidOut.missingCharacters))
                 }
@@ -145,6 +153,24 @@ public enum PageLayoutEngine {
         }
         return PageLayout(page: page, size: pageRect.size, fontSize: fontSize, lineHeight: lineHeight,
                           items: items, diagnostics: diagnostics)
+    }
+
+    /// The height of a page laid out at `width`. Every page of a layout has the same height.
+    public static func pageHeight(width: Double, linesPerPage: Int, font: MushafFont, style: PageStyle) -> Double {
+        let ctFont = font.sized((width - 2 * style.horizontalInset) * style.calibration)
+        let lineHeight = (CTFontGetAscent(ctFont) + CTFontGetDescent(ctFont)) * style.lineSpacing
+        return 2 * style.verticalInset + Double(linesPerPage) * lineHeight
+    }
+
+    /// The widest page width, up to `maximumWidth`, whose page fits in `height`.
+    /// Page height grows linearly with the text column, so this solves for the column directly.
+    public static func width(fitting height: Double, maximumWidth: Double, linesPerPage: Int, font: MushafFont,
+                             style: PageStyle) -> Double {
+        let full = pageHeight(width: maximumWidth, linesPerPage: linesPerPage, font: font, style: style)
+        guard full > height else { return maximumWidth }
+        let perColumnPoint = (full - 2 * style.verticalInset) / (maximumWidth - 2 * style.horizontalInset)
+        let column = max((height - 2 * style.verticalInset) / perColumnPoint, 1)
+        return column + 2 * style.horizontalInset
     }
 
     static func makeLine(_ text: String, font: CTFont) -> CTLine {

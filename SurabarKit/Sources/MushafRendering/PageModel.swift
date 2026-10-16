@@ -12,6 +12,13 @@ public struct AyahKey: Hashable, Comparable, Sendable, CustomStringConvertible {
 
     public var description: String { "\(surah):\(ayah)" }
 
+    /// Parses "surah:ayah".
+    public init?(string: String) {
+        let parts = string.split(separator: ":")
+        guard parts.count == 2, let surah = Int(parts[0]), let ayah = Int(parts[1]), surah > 0, ayah > 0 else { return nil }
+        self.init(surah: surah, ayah: ayah)
+    }
+
     public static func < (lhs: AyahKey, rhs: AyahKey) -> Bool {
         (lhs.surah, lhs.ayah) < (rhs.surah, rhs.ayah)
     }

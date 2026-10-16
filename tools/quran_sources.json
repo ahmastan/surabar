@@ -4,13 +4,38 @@
   "metadata": {
     "surahs": {
       "url": "https://qul.tarteel.ai/resources/quran-metadata/70",
-      "path": null,
-      "sha256": null
+      "path": "metadata/quran-metadata-surah-name.json-extracted/quran-metadata-surah-name.json",
+      "sha256": "ada09f674efd35d0c054c9b81c98d14550f6c66b77767a9173674799f675d7de",
+      "archive": "metadata/quran-metadata-surah-name.json.zip",
+      "archive_sha256": "e0118c8aab8a25aa81b9e722479a2875520285d00a34a213331cefc8b0670ded"
     },
     "ayahs": {
       "url": "https://qul.tarteel.ai/resources/quran-metadata/69",
-      "path": null,
-      "sha256": null
+      "path": "metadata/quran-metadata-ayah.json-extracted/quran-metadata-ayah.json",
+      "sha256": "bf1e0d24abf378acc7ebd35c4ecbcbf941057594fefa50322cc5c801565de0f4",
+      "archive": "metadata/quran-metadata-ayah.json.zip",
+      "archive_sha256": "aaa50987d2407c3cb9dcefe6bc36d39d7124d3d2f7c1d0641f792552e2973339"
+    },
+    "juz": {
+      "url": "https://qul.tarteel.ai/resources/quran-metadata/68",
+      "archive": "metadata/quran-metadata-juz.json.zip",
+      "archive_sha256": "c4d0a2d49bae035201cde5b7f330afe312e6c23872a71399fa8c8d2c5d592a21",
+      "path": "metadata/quran-metadata-juz.json-extracted/quran-metadata-juz.json",
+      "sha256": "0e34f5abbd786c828d388b1f3c732db8b42b1bf36a4f619603e4c632f9e86628"
+    },
+    "hizb": {
+      "url": "https://qul.tarteel.ai/resources/quran-metadata/67",
+      "archive": "metadata/quran-metadata-hizb.json.zip",
+      "archive_sha256": "9e513bbab1ec1b77aad05be29836b6dd4adf81483756021aeff1d66ada015d22",
+      "path": "metadata/quran-metadata-hizb.json-extracted/quran-metadata-hizb.json",
+      "sha256": "6a99e08337fc3629b3c0ae04897cbdd33c818fea94ff01d1be8aa33a80e2cb64"
+    },
+    "rub": {
+      "url": "https://qul.tarteel.ai/resources/quran-metadata/63",
+      "archive": "metadata/quran-metadata-rub.json.zip",
+      "archive_sha256": "8d60aa266393e46af95f86d93c2529e629e328ab258174e1614ed04606f2e62d",
+      "path": "metadata/quran-metadata-rub.json-extracted/quran-metadata-rub.json",
+      "sha256": "9a8b17d69a3c173bff92aae5d53f6f83829cc8f513514b82266c4e4a3f81fd38"
     }
   },
   "layouts": {
@@ -18,24 +43,54 @@
       "name": "KFGQPC Hafs, 15-line Madani",
       "page_count": 604,
       "lines_per_page": 15,
-      "verified": false,
-      "verification_note": "Resource 10 is a QPC V2 glyph layout. Its word ranges have not been shown to match the resource 312 Unicode word IDs or the tool 27 Unicode layout preview.",
+      "verified": true,
+      "verification_note": "Line membership from QUL's Unicode 1421H layout preview (tool 27), whose words match resource 312 exactly; 15 defective preview pages patched from resource 10 (see layout.patched_pages). Owner visual acceptance is still pending.",
       "words": {
         "url": "https://qul.tarteel.ai/resources/quran-script/312",
-        "path": null,
-        "sha256": null
+        "path": "uthmani/qpc-hafs-word-by-word.db-extracted/qpc-hafs-word-by-word.db",
+        "sha256": "e1cf266ed47a56e58100c08f69499f635f84c97233318cc53daf17200fb9048e",
+        "archive": "uthmani/qpc-hafs-word-by-word.db.zip",
+        "archive_sha256": "64b59c7ae3dae32f3650c534cb5a40c91089e0a6319372ded9500181a3cc6a47"
       },
       "layout": {
-        "url": "https://qul.tarteel.ai/resources/mushaf-layout/10",
-        "path": null,
-        "sha256": null
+        "url": "https://qul.tarteel.ai/mushaf_layouts/27",
+        "note": "QUL offers no download for this Unicode layout. Pages 1–604 were saved from the public preview on 2026-10-15 and converted with tools/convert_qul_preview_layout.py. Replace with an official export when QUL provides one.",
+        "preview_pages": "uthmani/tool27-preview-2026-10-15",
+        "preview_pages_sha256": "fd4215fa820471b09f3c43a3efb04a323b99fabcff3e8c9754d688de536d8d0d",
+        "patched_pages": {
+          "pages": [
+            135,
+            213,
+            244,
+            276,
+            278,
+            280,
+            286,
+            303,
+            304,
+            425,
+            436,
+            468,
+            480,
+            547,
+            596
+          ],
+          "from": "resource 10 (qpc-v2-15-lines.db)",
+          "reason": "Defective preview pages: a word omitted (276, 278, 280, 286, 425, 436, 468); an empty mid-page line beside a doubled line (480, 547); surah 94's first words attached to its heading (596); words moved between adjacent lines, giving pairs such as 6/18 words where resource 10 has 12/12 (135, 213, 244, 303, 304). Each patched page covers exactly the same first and last words. Reported to QUL."
+        },
+        "convert_command": "python3 tools/convert_qul_preview_layout.py --pages tools/data/raw/uthmani/tool27-preview-2026-10-15 --words tools/data/raw/uthmani/qpc-hafs-word-by-word.db-extracted/qpc-hafs-word-by-word.db --output tools/data/raw/uthmani/kfgqpc-1421h-unicode-15-lines.db --page-count 604 --name \"KFGQPC 1421H print (Unicode text), converted from QUL tool 27 preview\" --patch-from tools/data/raw/uthmani/qpc-v2-15-lines.db-extracted/qpc-v2-15-lines.db --patch-pages 135,213,244,276,278,280,286,303,304,425,436,468,480,547,596",
+        "path": "uthmani/kfgqpc-1421h-unicode-15-lines.db",
+        "sha256": "2648f0a5af6028956db567c8bea37248e80c4e125473883d1b48b3d65e229f09",
+        "rejected_alternative": "Resource 10 for all pages: 1,694 of 9,001 lines differ in word membership from the Unicode layout."
       },
       "font": {
         "url": "https://qul.tarteel.ai/resources/font/245",
         "download": "https://static-cdn.tarteel.ai/qul/fonts/UthmanicHafs_V22.ttf",
         "path": "uthmani/UthmanicHafs_V22.ttf",
         "sha256": "aa68bffce289b4c0ebac68e90502eb69e42356abcd1603cb2b8e99c2c723f145",
-        "license_status": "Embedded KFGQPC EULA permits free use, copying, and distribution; forbids sale and modification. Bundle unmodified with the license text."
+        "license_status": "Embedded KFGQPC EULA permits free use, copying, and distribution; forbids sale and modification. Bundle unmodified with the license text.",
+        "font_pack_note": "The resource 245 font pack (qpc-hafs.zip, sha256 6478b46366bfd3ba075c0f6d1d9269c53373912f1df58c051e16d53555a90cba) contains only UthmanicHafs1 versions 17 and 18 and no license file; QUL's site serves version 22, which is used.",
+        "calibration": 0.044327
       }
     },
     "indopak": {
@@ -46,21 +101,37 @@
       "verification_note": "Layout and word data are designed for each other by QUL. Owner visual acceptance is still pending.",
       "words": {
         "url": "https://qul.tarteel.ai/resources/quran-script/59",
-        "path": null,
-        "sha256": null
+        "path": "indopak/indopak-nastaleeq.db-extracted/indopak-nastaleeq.db",
+        "sha256": "77a50adef75207351b33580ffc356533de176885c043c51e0cac826d7976e864",
+        "archive": "indopak/indopak-nastaleeq.db.zip",
+        "archive_sha256": "125f2844f9ee7cb0794ec7ac6a3e4bf2e343f96af826806e8cb5c86c04c23af6"
       },
       "layout": {
         "url": "https://qul.tarteel.ai/resources/mushaf-layout/12",
-        "path": null,
-        "sha256": null
+        "path": "indopak/qudratullah-indopak-15-lines.db-extracted/qudratullah-indopak-15-lines.db",
+        "sha256": "bdf21d2fd25eff9f1e70b2c062f823adc70b2d7470dccd1f8c7ca1bd932c76aa",
+        "archive": "indopak/qudratullah-indopak-15-lines.db.zip",
+        "archive_sha256": "071a5edc93ee58a267f0816d58e75931e85d85cb12a9241110800d44aa3c6f7c"
       },
       "font": {
         "url": "https://qul.tarteel.ai/resources/font/242",
         "download": "https://static-cdn.tarteel.ai/qul/fonts/nastaleeq/Hanafi/normal-v4.2.2/with-waqf-lazmi/font.ttf",
         "path": "indopak/font.ttf",
         "sha256": "a6463e24e36651404e9eff52dae26e18e9ef0718eb620636a66a20026a75c563",
-        "license_status": "BLOCKED: embedded notice says not for distribution or development without written notice from QuranWBW.com."
+        "license_status": "BLOCKED: embedded notice says not for distribution or development without written notice from QuranWBW.com.",
+        "calibration": 0.046025
       }
+    }
+  },
+  "translations": {
+    "en.sahih": {
+      "url": "https://qul.tarteel.ai/resources/translation/193",
+      "name": "Saheeh International",
+      "archive": "translation/en-sahih-international-simple.json.zip",
+      "archive_sha256": "5ea008e2635be26ea1530cfb3f94872d0a46a8d3edab48e14d2b214a5db47304",
+      "path": "translation/en-sahih-international-simple.json-extracted/en-sahih-international-simple.json",
+      "sha256": "57df29716a55f6aa1f17c70f101872303f8b814ab7ba72f76993d9d5e3000750",
+      "license_status": "Redistribution terms not established; not bundled."
     }
   }
 }

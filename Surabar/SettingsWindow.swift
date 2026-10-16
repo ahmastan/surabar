@@ -6,10 +6,12 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private let state: AppState
+    private let model: ReaderModel
     private var window: NSWindow?
 
-    init(state: AppState) {
+    init(state: AppState, model: ReaderModel) {
         self.state = state
+        self.model = model
     }
 
     func show() {
@@ -20,7 +22,7 @@ final class SettingsWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: state)))
+        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: state, model: model)))
         window.title = "Surabar Settings"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
@@ -30,9 +32,10 @@ final class SettingsWindowController {
     }
 }
 
-/// Settings skeleton for Phase 1. Reading, recitation, and integration settings arrive with their phases.
+/// Settings. Recitation and integration settings arrive with their phases.
 struct SettingsView: View {
     @Bindable var state: AppState
+    let model: ReaderModel
 
     var body: some View {
         Form {
@@ -47,6 +50,12 @@ struct SettingsView: View {
                 }
             }
             Section("Reading") {
+                if let layouts = model.store?.layouts, layouts.count > 1 {
+                    // Switching keeps the selected ayah in view.
+                    Picker("Script", selection: Binding(get: { state.script }, set: { model.switchScript(to: $0) })) {
+                        ForEach(layouts, id: \.id) { Text($0.id == "indopak" ? "IndoPak" : "Uthmani").tag($0.id) }
+                    }
+                }
                 Toggle("Show translation strip", isOn: $state.showTranslation)
             }
             Section("Window") {

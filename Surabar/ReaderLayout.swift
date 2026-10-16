@@ -3,23 +3,29 @@ import CoreGraphics
 /// Reader dimensions shared by the popover and the detached window.
 enum ReaderLayout {
     static let headerHeight = 46.0
-    static let translationHeight = 72.0
-    static let playerHeight = 96.0
-    /// A 15-line mushaf page is taller than it is wide.
-    static let pageAspect = 1.42
+    static let footerHeight = 28.0
+    /// Three lines of translation text; longer translations scroll.
+    static let translationTextHeight = 54.0
+    static let translationHeight = 88.0
     /// Space kept free between the reader and the bottom of the screen.
     static let screenMargin = 16.0
     static let minimumWidth = 320.0
     static let maximumWidth = 760.0
     static let minimumHeight = 360.0
 
-    static func preferredHeight(width: Double, showTranslation: Bool) -> Double {
-        headerHeight + (width * pageAspect).rounded() + (showTranslation ? translationHeight : 0) + playerHeight
+    /// Everything except the page: header, page footer, and the translation strip when shown.
+    static func chromeHeight(showTranslation: Bool) -> Double {
+        headerHeight + footerHeight + (showTranslation ? translationHeight : 0)
     }
 
-    /// The popover size for a width, clamped so it never extends past the visible screen area.
-    static func popoverSize(width: Double, showTranslation: Bool, availableHeight: Double) -> CGSize {
-        let height = min(preferredHeight(width: width, showTranslation: showTranslation), availableHeight - screenMargin)
+    static func preferredHeight(pageHeight: Double, showTranslation: Bool) -> Double {
+        chromeHeight(showTranslation: showTranslation) + pageHeight.rounded(.up)
+    }
+
+    /// The popover size, clamped so it never extends past the visible screen area.
+    /// The page view shrinks the page to fit when the height is clamped.
+    static func popoverSize(width: Double, pageHeight: Double, showTranslation: Bool, availableHeight: Double) -> CGSize {
+        let height = min(preferredHeight(pageHeight: pageHeight, showTranslation: showTranslation), availableHeight - screenMargin)
         return CGSize(width: width, height: max(height, minimumHeight))
     }
 }

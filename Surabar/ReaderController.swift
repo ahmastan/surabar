@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class ReaderController: NSObject {
     private let state: AppState
+    private let model: ReaderModel
     private let showSettings: () -> Void
     private let popover = NSPopover()
     private var panel: NSPanel?
@@ -13,8 +14,9 @@ final class ReaderController: NSObject {
 
     private static let frameName = "SurabarReaderWindow"
 
-    init(state: AppState, showSettings: @escaping () -> Void) {
+    init(state: AppState, model: ReaderModel, showSettings: @escaping () -> Void) {
         self.state = state
+        self.model = model
         self.showSettings = showSettings
         super.init()
         popover.behavior = .transient
@@ -87,8 +89,9 @@ final class ReaderController: NSObject {
     private func resizePopover(for button: NSStatusBarButton?) {
         let screen = button?.window?.screen ?? NSScreen.main
         let available = screen.map { Double($0.visibleFrame.height) } ?? 900
-        popover.contentSize = ReaderLayout.popoverSize(width: state.size.width, showTranslation: state.showTranslation,
-                                                       availableHeight: available)
+        let width = state.size.width
+        popover.contentSize = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
+                                                       showTranslation: state.showTranslation, availableHeight: available)
     }
 
     private func applyWindowSettings() {
@@ -124,7 +127,7 @@ final class ReaderController: NSObject {
     /// Re-applies window settings whenever the observed state changes.
     private func observeState() {
         withObservationTracking {
-            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation)
+            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()
@@ -141,7 +144,7 @@ final class ReaderController: NSObject {
             attach: { [weak self] in self?.attach() },
             openSettings: { [weak self] in self?.showSettings() }
         )
-        let host = NSHostingController(rootView: ReaderView(state: state, actions: actions))
+        let host = NSHostingController(rootView: ReaderView(state: state, model: model, actions: actions))
         // The popover and window set the size; the SwiftUI content fills it.
         host.sizingOptions = []
         return host
@@ -149,7 +152,7 @@ final class ReaderController: NSObject {
 
     private func makePanel() -> NSPanel {
         let width = state.size.width
-        let height = ReaderLayout.preferredHeight(width: width, showTranslation: state.showTranslation)
+        let height = ReaderLayout.preferredHeight(pageHeight: model.pageHeight(width: width), showTranslation: state.showTranslation)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
                             backing: .buffered, defer: false)
