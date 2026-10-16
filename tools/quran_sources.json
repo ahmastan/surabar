@@ -1,0 +1,66 @@
+{
+  "manifest_version": 1,
+  "notes": "Paths are relative to tools/data/raw. A null path or sha256 means the file has not been downloaded and recorded yet. A layout with verified=false is refused by build_quran_db.py unless --allow-unverified is given, and such a database is marked unverified.",
+  "metadata": {
+    "surahs": {
+      "url": "https://qul.tarteel.ai/resources/quran-metadata/70",
+      "path": null,
+      "sha256": null
+    },
+    "ayahs": {
+      "url": "https://qul.tarteel.ai/resources/quran-metadata/69",
+      "path": null,
+      "sha256": null
+    }
+  },
+  "layouts": {
+    "uthmani": {
+      "name": "KFGQPC Hafs, 15-line Madani",
+      "page_count": 604,
+      "lines_per_page": 15,
+      "verified": false,
+      "verification_note": "Resource 10 is a QPC V2 glyph layout. Its word ranges have not been shown to match the resource 312 Unicode word IDs or the tool 27 Unicode layout preview.",
+      "words": {
+        "url": "https://qul.tarteel.ai/resources/quran-script/312",
+        "path": null,
+        "sha256": null
+      },
+      "layout": {
+        "url": "https://qul.tarteel.ai/resources/mushaf-layout/10",
+        "path": null,
+        "sha256": null
+      },
+      "font": {
+        "url": "https://qul.tarteel.ai/resources/font/245",
+        "download": "https://static-cdn.tarteel.ai/qul/fonts/UthmanicHafs_V22.ttf",
+        "path": "uthmani/UthmanicHafs_V22.ttf",
+        "sha256": "aa68bffce289b4c0ebac68e90502eb69e42356abcd1603cb2b8e99c2c723f145",
+        "license_status": "Embedded KFGQPC EULA permits free use, copying, and distribution; forbids sale and modification. Bundle unmodified with the license text."
+      }
+    },
+    "indopak": {
+      "name": "IndoPak Nastaleeq, 15-line Qudratullah",
+      "page_count": 610,
+      "lines_per_page": 15,
+      "verified": true,
+      "verification_note": "Layout and word data are designed for each other by QUL. Owner visual acceptance is still pending.",
+      "words": {
+        "url": "https://qul.tarteel.ai/resources/quran-script/59",
+        "path": null,
+        "sha256": null
+      },
+      "layout": {
+        "url": "https://qul.tarteel.ai/resources/mushaf-layout/12",
+        "path": null,
+        "sha256": null
+      },
+      "font": {
+        "url": "https://qul.tarteel.ai/resources/font/242",
+        "download": "https://static-cdn.tarteel.ai/qul/fonts/nastaleeq/Hanafi/normal-v4.2.2/with-waqf-lazmi/font.ttf",
+        "path": "indopak/font.ttf",
+        "sha256": "a6463e24e36651404e9eff52dae26e18e9ef0718eb620636a66a20026a75c563",
+        "license_status": "BLOCKED: embedded notice says not for distribution or development without written notice from QuranWBW.com."
+      }
+    }
+  }
+}
