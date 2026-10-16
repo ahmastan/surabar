@@ -31,6 +31,10 @@ final class AppState {
         static let script = "readingScript"
         static let pages = "readingPages"
         static let selection = "selectedAyah"
+        static let reciter = "mp3quranReciter"
+        static let speed = "playbackSpeed"
+        static let repeatPause = "repeatPause"
+        static let lastPlayed = "lastPlayedAyah"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -71,6 +75,26 @@ final class AppState {
         didSet { defaults.set(selectedAyah.description, forKey: Keys.selection) }
     }
 
+    /// The mp3quran.net reading ID of the chosen reciter.
+    var reciterID: Int {
+        didSet { defaults.set(reciterID, forKey: Keys.reciter) }
+    }
+
+    /// Playback rate: 0.5, 0.75, 1, 1.25, 1.5, 1.75, or 2.
+    var speed: Double {
+        didSet { defaults.set(speed, forKey: Keys.speed) }
+    }
+
+    /// Seconds of silence between repeats of an ayah or range, 0–5.
+    var repeatPause: Double {
+        didSet { defaults.set(repeatPause, forKey: Keys.repeatPause) }
+    }
+
+    /// Where recitation last was, restored paused after relaunch.
+    var lastPlayedAyah: AyahKey? {
+        didSet { defaults.set(lastPlayedAyah?.description, forKey: Keys.lastPlayed) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         size = defaults.string(forKey: Keys.size).flatMap(ReaderSize.init(rawValue:)) ?? .medium
@@ -81,6 +105,11 @@ final class AppState {
         script = defaults.string(forKey: Keys.script) ?? "uthmani"
         pages = defaults.dictionary(forKey: Keys.pages) as? [String: Int] ?? [:]
         selectedAyah = defaults.string(forKey: Keys.selection).flatMap(AyahKey.init(string:)) ?? AyahKey(surah: 1, ayah: 1)
+        reciterID = defaults.object(forKey: Keys.reciter) as? Int ?? 123
+        let storedSpeed = defaults.double(forKey: Keys.speed)
+        speed = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].contains(storedSpeed) ? storedSpeed : 1
+        repeatPause = min(max(defaults.double(forKey: Keys.repeatPause), 0), 5)
+        lastPlayedAyah = defaults.string(forKey: Keys.lastPlayed).flatMap(AyahKey.init(string:))
     }
 }
 

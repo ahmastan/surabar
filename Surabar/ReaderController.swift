@@ -7,6 +7,7 @@ import SwiftUI
 final class ReaderController: NSObject {
     private let state: AppState
     private let model: ReaderModel
+    private let player: RecitationPlayer?
     private let showSettings: () -> Void
     private let popover = NSPopover()
     private var panel: NSPanel?
@@ -14,9 +15,10 @@ final class ReaderController: NSObject {
 
     private static let frameName = "SurabarReaderWindow"
 
-    init(state: AppState, model: ReaderModel, showSettings: @escaping () -> Void) {
+    init(state: AppState, model: ReaderModel, player: RecitationPlayer?, showSettings: @escaping () -> Void) {
         self.state = state
         self.model = model
+        self.player = player
         self.showSettings = showSettings
         super.init()
         popover.behavior = .transient
@@ -144,7 +146,7 @@ final class ReaderController: NSObject {
             attach: { [weak self] in self?.attach() },
             openSettings: { [weak self] in self?.showSettings() }
         )
-        let host = NSHostingController(rootView: ReaderView(state: state, model: model, actions: actions))
+        let host = NSHostingController(rootView: ReaderView(state: state, model: model, player: player, actions: actions))
         // The popover and window set the size; the SwiftUI content fills it.
         host.sizingOptions = []
         return host

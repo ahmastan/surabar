@@ -8,11 +8,11 @@ struct ReaderActions {
     let openSettings: () -> Void
 }
 
-/// The reader: navigation header, mushaf page with its footer, and the optional translation strip.
-/// Recitation controls arrive in Phase 3.
+/// The reader: navigation header, mushaf page with its footer, the optional translation strip, and the player.
 struct ReaderView: View {
     let state: AppState
     let model: ReaderModel
+    let player: RecitationPlayer?
     let actions: ReaderActions
 
     var body: some View {
@@ -33,7 +33,11 @@ struct ReaderView: View {
                 }
                 if state.showTranslation {
                     Divider()
-                    TranslationStrip(model: model, palette: palette)
+                    TranslationStrip(model: model, playing: player?.isActive ?? false, palette: palette)
+                }
+                if let player {
+                    Divider()
+                    PlayerView(player: player, model: model, palette: palette)
                 }
             }
         }
@@ -180,12 +184,15 @@ struct ReaderView: View {
 /// The selected ayah's translation, scrolling when longer than three lines.
 struct TranslationStrip: View {
     let model: ReaderModel
+    /// While recitation plays, the selection follows the recited ayah.
+    let playing: Bool
     let palette: ReaderPalette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(model.state.selectedAyah.description).font(.caption.weight(.bold)).foregroundStyle(palette.accent)
+                Text(playing ? "Playing" : "Selected").font(.caption).foregroundStyle(palette.secondary)
                 Spacer()
                 Text(model.library?.translation?.name ?? "").font(.caption).foregroundStyle(palette.secondary)
             }

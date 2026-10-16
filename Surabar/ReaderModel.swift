@@ -148,6 +148,13 @@ final class ReaderModel {
         state.selectedAyah = ayah
     }
 
+    /// Recitation moved to another ayah: select it and turn to its page.
+    func followPlayback(to ayah: AyahKey) {
+        state.selectedAyah = ayah
+        guard !isOnPage(ayah), let layout, let page = try? store?.firstPage(of: ayah, in: layout) else { return }
+        state.pages[layout.id] = page
+    }
+
     /// Selects the next (+1) or previous (−1) ayah, turning the page when it starts elsewhere.
     func selectAdjacentAyah(_ direction: Int) {
         guard let store else { return }

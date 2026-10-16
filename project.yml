@@ -38,6 +38,8 @@ targets:
         product: MushafRendering
       - package: SurabarKit
         product: QuranStore
+      - package: SurabarKit
+        product: Recitation
     settings:
       base:
         PRODUCT_NAME: Surabar

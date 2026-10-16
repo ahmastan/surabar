@@ -7,15 +7,16 @@ enum ReaderLayout {
     /// Three lines of translation text; longer translations scroll.
     static let translationTextHeight = 54.0
     static let translationHeight = 88.0
+    static let playerHeight = 104.0
     /// Space kept free between the reader and the bottom of the screen.
     static let screenMargin = 16.0
     static let minimumWidth = 320.0
     static let maximumWidth = 760.0
     static let minimumHeight = 360.0
 
-    /// Everything except the page: header, page footer, and the translation strip when shown.
+    /// Everything except the page: header, page footer, player, and the translation strip when shown.
     static func chromeHeight(showTranslation: Bool) -> Double {
-        headerHeight + footerHeight + (showTranslation ? translationHeight : 0)
+        headerHeight + footerHeight + playerHeight + (showTranslation ? translationHeight : 0)
     }
 
     static func preferredHeight(pageHeight: Double, showTranslation: Bool) -> Double {

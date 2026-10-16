@@ -1,0 +1,116 @@
+[
+  {
+    "id": 123,
+    "name": "Mishary Rashid Alafasy",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/mishary-alafasy/r1/"
+  },
+  {
+    "id": 54,
+    "name": "Abdur-Rahman as-Sudais",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/abdulrahman-sudais/r1/"
+  },
+  {
+    "id": 31,
+    "name": "Saud ash-Shuraim",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/saud-shuraim/r1/"
+  },
+  {
+    "id": 4,
+    "name": "Abu Bakr ash-Shatri",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/abubakr-shatri/r1/"
+  },
+  {
+    "id": 5,
+    "name": "Ahmad al-Ajmy",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/ahmad-ajmi/r1/"
+  },
+  {
+    "id": 60,
+    "name": "Abdullah Basfar",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/abdullah-basfar/r1/"
+  },
+  {
+    "id": 112,
+    "name": "Muhammad Siddiq al-Minshawi",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/muhammad-minshawi/r1/"
+  },
+  {
+    "id": 118,
+    "name": "Mahmoud Khalil al-Husary",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/mahmoud-husary/r1/"
+  },
+  {
+    "id": 51,
+    "name": "Abdul Basit Abdus-Samad",
+    "style": "Mujawwad",
+    "server": "https://cdn.mp3quran.net/audio/abdulbasit-abdulsamad/r1/"
+  },
+  {
+    "id": 133,
+    "name": "Maher al-Muaiqly",
+    "style": "Mujawwad",
+    "server": "https://cdn.mp3quran.net/audio/maher-muaiqly/r3/"
+  },
+  {
+    "id": 89,
+    "name": "Hani ar-Rifai",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/hani-rifai/r1/"
+  },
+  {
+    "id": 92,
+    "name": "Yasser ad-Dossari",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/yasser-dosari/r1/"
+  },
+  {
+    "id": 81,
+    "name": "Fares Abbad",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/fares-abbad/r1/"
+  },
+  {
+    "id": 43,
+    "name": "Salah al-Budair",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/salah-budair/r1/"
+  },
+  {
+    "id": 86,
+    "name": "Nasser al-Qatami",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/nasser-qatami/r1/"
+  },
+  {
+    "id": 59,
+    "name": "Abdullah al-Matrood",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/abdullah-matrood/r1/"
+  },
+  {
+    "id": 62,
+    "name": "Abdullah al-Juhani",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/abdullah-juhani/r1/"
+  },
+  {
+    "id": 46,
+    "name": "Salah Bukhatir",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/salah-bukhatir/r1/"
+  },
+  {
+    "id": 106,
+    "name": "Muhammad at-Tablawi",
+    "style": null,
+    "server": "https://cdn.mp3quran.net/audio/muhammad-tablawi/r1/"
+  }
+]

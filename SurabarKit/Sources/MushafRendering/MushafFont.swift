@@ -31,7 +31,8 @@ public struct MushafFont: @unchecked Sendable {
 
     /// The system's Arabic interface font, for surah titles and other text that is not Quranic.
     /// SF Arabic cannot be requested by name, so take the font the system UI font cascades to for Arabic.
-    public static var systemArabic: MushafFont {
+    /// Created once: creating system UI fonts on several threads at the same time can deadlock Core Text.
+    public static let systemArabic: MushafFont = {
         let fallback = MushafFont(CTFontCreateWithName("GeezaPro" as CFString, 100, nil))
         guard let ui = CTFontCreateUIFontForLanguage(.system, 100, "ar" as CFString) else { return fallback }
         let probe = NSAttributedString(string: "ب", attributes: [NSAttributedString.Key(kCTFontAttributeName as String): ui])
@@ -39,7 +40,7 @@ public struct MushafFont: @unchecked Sendable {
               let attributes = CTRunGetAttributes(run) as? [String: Any],
               let font = attributes[kCTFontAttributeName as String] else { return fallback }
         return MushafFont(font as! CTFont)
-    }
+    }()
 
     private init(_ font: CTFont) {
         base = font

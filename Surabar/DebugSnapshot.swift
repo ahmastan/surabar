@@ -1,4 +1,5 @@
 #if DEBUG
+import AVFoundation
 import AppKit
 import MushafRendering
 import SwiftUI
@@ -38,7 +39,10 @@ enum DebugSnapshot {
         let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
                                             showTranslation: state.showTranslation, availableHeight: 2000)
         let actions = ReaderActions(detach: {}, attach: {}, openSettings: {})
-        let view = NSHostingView(rootView: ReaderView(state: state, model: model, actions: actions))
+        let player = model.store.map { store in
+            RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
+        }
+        let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, actions: actions))
         view.frame = CGRect(origin: .zero, size: size)
         switch state.theme {
         case .dark: view.appearance = NSAppearance(named: .darkAqua)
@@ -63,4 +67,55 @@ enum DebugSnapshot {
         return true
     }
 }
+
+/// Debug builds only: plays recitation muted from an ayah and prints each ayah change with the
+/// recording's position, and whether the audio continued or jumped (a seek or a new recording).
+///
+///     SURABAR_PROBE_PLAYBACK="1:1 25" [SURABAR_PROBE_RECITER=3] Surabar.app/Contents/MacOS/Surabar
+@MainActor
+enum DebugPlaybackProbe {
+    static func runIfRequested() -> Bool {
+        guard let spec = ProcessInfo.processInfo.environment["SURABAR_PROBE_PLAYBACK"] else { return false }
+        let parts = spec.split(separator: " ")
+        guard let ayah = parts.first.flatMap({ AyahKey(string: String($0)) }), let seconds = parts.dropFirst().first.flatMap({ Double($0) }),
+              case .success(let library) = QuranLibrary.loadBundled() else { exit(2) }
+        let suite = "io.github.ahmastan.surabar.probe"
+        UserDefaults().removePersistentDomain(forName: suite)
+        let state = AppState(defaults: UserDefaults(suiteName: suite)!)
+        if let reciter = ProcessInfo.processInfo.environment["SURABAR_PROBE_RECITER"].flatMap(Int.init) { state.reciterID = reciter }
+        let player = RecitationPlayer(state: state, ayahCounts: library.store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
+        let queue = player.debugQueuePlayer
+        queue.isMuted = true
+        let origin = CACurrentMediaTime()
+        var last: (wall: Double, position: Double, item: ObjectIdentifier?)?
+        player.onAyahChange = { ayah in
+            let wall = CACurrentMediaTime() - origin
+            let position = queue.currentTime().seconds
+            let item = queue.currentItem.map(ObjectIdentifier.init)
+            var how = "start"
+            if let last {
+                let expected = last.position + (wall - last.wall) * Double(queue.rate == 0 ? 1 : queue.rate)
+                how = last.item == item && abs(position - expected) < 0.3 ? "continued (no seek)" : "jumped"
+            }
+            print(String(format: "%6.2fs  %@  at %.2fs in %@ — %@", wall, ayah.description, position,
+                         (queue.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent ?? "-", how))
+        }
+        // Sample continuously so each ayah change is compared with where the audio just was.
+        queue.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { time in
+            MainActor.assumeIsolated {
+                guard queue.rate != 0, time.seconds.isFinite else { return }
+                last = (CACurrentMediaTime() - origin, time.seconds, queue.currentItem.map(ObjectIdentifier.init))
+            }
+        }
+        player.play(from: ayah)
+        print("playing reciter \(state.reciterID) from \(ayah) for \(Int(seconds)) s (muted)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            print(String(format: "status: %@, at %@, %.1f s into %@", "\(player.status)", player.ayah?.description ?? "-",
+                         queue.currentTime().seconds, (queue.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent ?? "-"))
+            exit(0)
+        }
+        return true
+    }
+}
 #endif
+
