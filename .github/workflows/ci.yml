@@ -27,3 +27,31 @@ jobs:
           python-version: '3.13'
       - name: Test source inspection without private downloads
         run: python3 -m unittest discover -s tools/tests -v
+
+  swift-package:
+    name: Rendering harness build and tests
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build
+        run: swift build --package-path SurabarKit
+      - name: Test with synthetic text and system fonts
+        run: swift test --package-path SurabarKit
+
+  macos-app:
+    name: App build and tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build and test
+        run: xcodebuild -project Surabar.xcodeproj -scheme Surabar -destination 'platform=macOS' test

@@ -6,8 +6,8 @@ Surabar is early in development. Start with a focused issue describing the probl
 
 1. Fork the repository and clone your fork.
 2. Create a branch for your change.
-3. Follow the available setup instructions in [README.md](README.md). There is not yet an app build.
-4. Make a focused change and run `python3 -m unittest discover -s tools/tests -v` for source tooling, plus any other checks appropriate to it.
+3. Follow the available setup instructions in [README.md](README.md). Generate the Xcode project with `xcodegen generate`; do not commit `Surabar.xcodeproj`.
+4. Make a focused change and run `python3 -m unittest discover -s tools/tests -v` for source tooling `swift test --package-path SurabarKit` for the renderer, and the Xcode test command for the app, plus any other checks appropriate to it.
 5. Open a pull request describing the behavior changed and the validation performed. Include screenshots for rendering or UI changes.
 
 ## Quran data and rendering

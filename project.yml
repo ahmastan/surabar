@@ -1,0 +1,79 @@
+# XcodeGen specification for the Surabar app. Generate the Xcode project with:
+#   xcodegen generate
+# Surabar.xcodeproj is generated from this file and is not committed. Regenerate only
+# after changing this file; Xcode picks up new and deleted source files by itself.
+name: Surabar
+options:
+  bundleIdPrefix: io.github.ahmastan
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    # Ad-hoc signing: builds run on this Mac without a paid Apple Developer account.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  SurabarKit:
+    path: SurabarKit
+
+targets:
+  Surabar:
+    type: application
+    platform: macOS
+    # Synced folders: Xcode picks up added and removed files without regenerating.
+    sources:
+      - path: Surabar
+        type: syncedFolder
+    dependencies:
+      - package: SurabarKit
+        product: MushafRendering
+    settings:
+      base:
+        PRODUCT_NAME: Surabar
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ahmastan.surabar
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Surabar
+        # Menu bar only: no Dock icon or app menu.
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 ahmastan and Surabar contributors. MIT License."
+
+  SurabarTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: SurabarTests
+        type: syncedFolder
+    dependencies:
+      - target: Surabar
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ahmastan.surabar.tests
+
+schemes:
+  Surabar:
+    build:
+      targets:
+        Surabar: all
+        SurabarTests: [test]
+    run:
+      config: Debug
+      environmentVariables:
+        # Opens the reader as soon as the app launches from Xcode.
+        SURABAR_OPEN_ON_LAUNCH: "1"
+    test:
+      config: Debug
+      targets:
+        - SurabarTests
