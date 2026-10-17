@@ -6,13 +6,11 @@ import MushafRendering
 final class StatusItemController: NSObject {
     private let state: AppState
     private let reader: ReaderController
-    private let showSettings: () -> Void
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
-    init(state: AppState, reader: ReaderController, showSettings: @escaping () -> Void) {
+    init(state: AppState, reader: ReaderController) {
         self.state = state
         self.reader = reader
-        self.showSettings = showSettings
         super.init()
         guard let button = item.button else { return }
         let image = NSImage(systemSymbolName: "book", accessibilityDescription: "Surabar")
@@ -50,7 +48,7 @@ final class StatusItemController: NSObject {
             menu.addItem(entry)
         }
         menu.addItem(.separator())
-        menu.addItem(action("Settings…", key: ",", modifiers: .command) { [weak self] in self?.showSettings() })
+        menu.addItem(action("Settings…", key: ",", modifiers: .command) { [weak self] in self?.reader.showSettings(from: button) })
         menu.addItem(.separator())
         menu.addItem(action("Quit Surabar", key: "q", modifiers: .command) { NSApp.terminate(nil) })
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 6), in: button)

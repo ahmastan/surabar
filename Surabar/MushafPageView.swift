@@ -6,6 +6,7 @@ import SwiftUI
 struct MushafPageView: NSViewRepresentable {
     let model: ReaderModel
     let theme: ReaderTheme
+    let accent: NSColor
 
     func makeNSView(context: Context) -> MushafPageNSView {
         MushafPageNSView(model: model)
@@ -14,7 +15,7 @@ struct MushafPageView: NSViewRepresentable {
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
         view.update(page: model.pageNumber, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
-                    pageFonts: model.usesPageFonts)
+                    accent: accent, pageFonts: model.usesPageFonts)
     }
 }
 
@@ -22,6 +23,7 @@ struct MushafPageView: NSViewRepresentable {
 final class MushafPageNSView: NSView {
     private let model: ReaderModel
     private var theme: ReaderTheme = .system
+    private var accent: NSColor = .controlAccentColor
     private var pageLayout: PageLayout?
     private var swipeDistance: CGFloat = 0
     private var swipeHandled = false
@@ -36,8 +38,9 @@ final class MushafPageNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, pageFonts: Bool) {
+    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool) {
         self.theme = theme
+        self.accent = accent
         relayout()
         setAccessibilityLabel("Mushaf page \(page)")
         needsDisplay = true
@@ -78,12 +81,12 @@ final class MushafPageNSView: NSView {
         if theme == .sepia {
             return PageColors(background: CGColor(red: 0.973, green: 0.941, blue: 0.871, alpha: 1),
                               text: CGColor(red: 0.18, green: 0.141, blue: 0.086, alpha: 1),
-                              highlight: CGColor(red: 0.478, green: 0.306, blue: 0.114, alpha: 0.16))
+                              highlight: accent.withAlphaComponent(0.16).cgColor)
         }
         var colors = PageColors.light
         effectiveAppearance.performAsCurrentDrawingAppearance {
             colors = PageColors(background: NSColor.textBackgroundColor.cgColor, text: NSColor.labelColor.cgColor,
-                                highlight: NSColor.controlAccentColor.withAlphaComponent(0.2).cgColor)
+                                highlight: accent.withAlphaComponent(0.2).cgColor)
         }
         return colors
     }

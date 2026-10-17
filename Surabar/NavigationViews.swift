@@ -107,6 +107,8 @@ struct SurahPicker: View {
 struct JumpBox: View {
     let model: ReaderModel
     let palette: ReaderPalette
+    /// Drawn as a floating card over the page; a popover supplies its own frame.
+    var framed = true
     @State private var query = ""
     @FocusState private var focused: Bool
 
@@ -140,7 +142,7 @@ struct JumpBox: View {
         }
         .padding(10)
         .background(palette.chrome, in: RoundedRectangle(cornerRadius: 10))
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        .shadow(color: .black.opacity(framed ? 0.18 : 0), radius: 12, y: 4)
         .onAppear { focused = true }
     }
 

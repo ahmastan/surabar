@@ -9,6 +9,8 @@ import SwiftUI
 ///     SURABAR_SNAPSHOT=/tmp/reader.png SURABAR_SNAPSHOT_STATE="script=indopak ayah=2:255 size=L theme=dark overlay=jump" \
 ///       Surabar.app/Contents/MacOS/Surabar
 ///
+/// Also: `mode=player`, `settings=appearance|reading|player|general`, `accent=red` or `accent=#2E8B7A`.
+///
 /// Uses its own settings domain, so the user's reading position and preferences are untouched.
 @MainActor
 enum DebugSnapshot {
@@ -31,14 +33,26 @@ enum DebugSnapshot {
             case "theme": ReaderTheme(rawValue: parts[1]).map { state.theme = $0 }
             case "translation": state.showTranslation = parts[1] != "off"
             case "overlay": overlay = parts[1] == "jump" ? .jump : .surahPicker
+            case "mode": state.viewMode = parts[1] == "player" ? .playerOnly : .quranAndPlayer
+            case "settings":
+                state.isShowingSettings = true
+                SettingsTab(rawValue: parts[1]).map { state.settingsTab = $0 }
+            case "accent":
+                if let rgb = AccentRGB(hex: parts[1]) {
+                    state.customAccent = rgb
+                    state.accent = .custom
+                } else {
+                    ReaderAccent(rawValue: parts[1]).map { state.accent = $0 }
+                }
             default: break
             }
         }
         model.overlay = overlay
         let width = state.size.width
         let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
-                                            showTranslation: state.showTranslation, availableHeight: 2000)
-        let actions = ReaderActions(detach: {}, attach: {}, openSettings: {})
+                                            showTranslation: state.showTranslation, availableHeight: 2000,
+                                            mode: state.viewMode)
+        let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {})
         let player = model.store.map { store in
             RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
         }
@@ -56,6 +70,11 @@ enum DebugSnapshot {
         view.layoutSubtreeIfNeeded()
         // Let SwiftUI finish a layout pass before capturing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // Settings are sized to their measured content, as in the app.
+            if state.isShowingSettings, let content = state.settingsContentHeights[state.settingsTab] {
+                view.setFrameSize(CGSize(width: size.width, height: ReaderLayout.settingsHeight(content: content)))
+                view.layoutSubtreeIfNeeded()
+            }
             view.layoutSubtreeIfNeeded()
             view.display()
             guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }

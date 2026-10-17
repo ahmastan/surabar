@@ -139,7 +139,7 @@ final class RecitationPlayer {
 
     // MARK: Sequencing
 
-    /// Playback currently stops at the end of the surah being played; milestone 2 adds the other boundaries.
+    /// Playback currently stops at the end of the surah being played; Phase 6 adds the other boundaries.
     private func sequence(endingWith ayah: AyahKey? = nil) -> PlaybackSequence {
         let end = ayah.map { AyahKey(surah: $0.surah, ayah: ayahCounts[$0.surah - 1]) } ?? AyahKey(surah: 114, ayah: 6)
         return PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: end)

@@ -80,7 +80,7 @@ struct PlayerView: View {
             } label: {
                 Image(systemName: player.isActive ? "pause.fill" : "play.fill")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.onAccent)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(palette.accent))
                     .opacity(player.status == .loading ? 0.75 : 1)
@@ -162,7 +162,7 @@ struct OptionMenu: View {
         .help(label)
         .accessibilityLabel("\(label): \(value)")
         .popover(isPresented: $isOpen, arrowEdge: .top) {
-            OptionList(sections: sections) { isOpen = false }
+            OptionList(sections: sections, accent: palette.accent, onAccent: palette.onAccent) { isOpen = false }
         }
     }
 }
@@ -170,6 +170,8 @@ struct OptionMenu: View {
 /// The choices shown by an OptionMenu, grouped under section titles, with the current ones checked.
 struct OptionList: View {
     let sections: [OptionSection]
+    let accent: Color
+    let onAccent: Color
     let dismiss: () -> Void
 
     var body: some View {
@@ -191,7 +193,7 @@ struct OptionList: View {
                             .padding(.vertical, 4)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(OptionRowStyle())
+                        .buttonStyle(OptionRowStyle(accent: accent, onAccent: onAccent))
                         .accessibilityAddTraits(item.isSelected ? .isSelected : [])
                     }
                 }
@@ -204,12 +206,14 @@ struct OptionList: View {
 }
 
 private struct OptionRowStyle: ButtonStyle {
+    let accent: Color
+    let onAccent: Color
     @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(hovering ? Color.white : Color.primary)
-            .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Color.accentColor : .clear))
+            .foregroundStyle(hovering ? onAccent : Color.primary)
+            .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? accent : .clear))
             .onHover { hovering = $0 }
     }
 }

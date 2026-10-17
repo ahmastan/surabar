@@ -8,18 +8,16 @@ final class ReaderController: NSObject {
     private let state: AppState
     private let model: ReaderModel
     private let player: RecitationPlayer?
-    private let showSettings: () -> Void
     private let popover = NSPopover()
     private var panel: NSPanel?
     private weak var anchor: NSStatusBarButton?
 
     private static let frameName = "SurabarReaderWindow"
 
-    init(state: AppState, model: ReaderModel, player: RecitationPlayer?, showSettings: @escaping () -> Void) {
+    init(state: AppState, model: ReaderModel, player: RecitationPlayer?) {
         self.state = state
         self.model = model
         self.player = player
-        self.showSettings = showSettings
         super.init()
         popover.behavior = .transient
         popover.animates = true
@@ -55,6 +53,13 @@ final class ReaderController: NSObject {
         if state.isDetached { showPanel() } else if !popover.isShown { showPopover(from: button) }
     }
 
+    /// Opens the reader with Settings shown in place.
+    func showSettings(from button: NSStatusBarButton?) {
+        model.overlay = nil
+        state.isShowingSettings = true
+        if let button { open(from: button) }
+    }
+
     func close() {
         popover.performClose(nil)
         panel?.orderOut(nil)
@@ -88,12 +93,25 @@ final class ReaderController: NSObject {
 
     // MARK: Sizing and appearance
 
+    /// The measured Settings height while they are shown, or nil for the reader.
+    private var settingsContentHeight: Double? {
+        state.isShowingSettings ? state.settingsContentHeights[state.settingsTab] : nil
+    }
+
+    /// Settings are shown but not yet measured: keep the current size until they are, so the
+    /// window animates once, straight to the right height.
+    private var awaitingSettingsHeight: Bool {
+        state.isShowingSettings && settingsContentHeight == nil
+    }
+
     private func resizePopover(for button: NSStatusBarButton?) {
+        if awaitingSettingsHeight { return }
         let screen = button?.window?.screen ?? NSScreen.main
         let available = screen.map { Double($0.visibleFrame.height) } ?? 900
         let width = state.size.width
         popover.contentSize = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
-                                                       showTranslation: state.showTranslation, availableHeight: available)
+                                                       showTranslation: state.showTranslation, availableHeight: available,
+                                                       mode: state.viewMode, settingsContentHeight: settingsContentHeight)
     }
 
     private func applyWindowSettings() {
@@ -104,6 +122,7 @@ final class ReaderController: NSObject {
         panel.appearance = appearance
         panel.level = state.keepOnTop ? .floating : .normal
         panel.isFloatingPanel = state.keepOnTop
+        fitPanelToContent(panel)
         if !panel.isVisible { return }
         // Choosing a size in the menu or Settings resizes the detached window to that width.
         var frame = panel.frame
@@ -118,6 +137,52 @@ final class ReaderController: NSObject {
 
     private var lastAppliedSize: ReaderSize?
 
+    /// What the panel last showed: the mode, and the Settings height while they were open.
+    private var panelContent: PanelContent?
+    /// The panel's height in "Quran + player" mode, restored when it returns from Settings or "Player only".
+    private var readerHeight: CGFloat?
+
+    private struct PanelContent: Equatable {
+        let mode: ReaderViewMode
+        let settingsHeight: CGFloat?
+
+        var isReader: Bool { mode == .quranAndPlayer && settingsHeight == nil }
+    }
+
+    /// Resizes the detached window when its content changes: Settings and "Player only" have a fixed
+    /// height that fits their content, and the reader returns to the height it had before.
+    private func fitPanelToContent(_ panel: NSPanel) {
+        if awaitingSettingsHeight { return }
+        let content = PanelContent(mode: state.viewMode, settingsHeight: settingsContentHeight.map {
+            CGFloat(ReaderLayout.settingsHeight(content: $0))
+        })
+        let fixed = content.settingsHeight ?? (content.mode == .playerOnly ? ReaderLayout.playerOnlyHeight : nil)
+        panel.contentMinSize = NSSize(width: ReaderLayout.minimumWidth, height: fixed ?? ReaderLayout.minimumHeight)
+        panel.contentMaxSize = NSSize(width: ReaderLayout.maximumWidth, height: fixed ?? CGFloat.greatestFiniteMagnitude)
+        guard let previous = panelContent, previous != content else {
+            panelContent = content
+            return
+        }
+        panelContent = content
+        let current = panel.contentLayoutRect.height
+        if previous.isReader { readerHeight = current }
+        setContentHeight(fixed ?? readerHeight ?? max(current, ReaderLayout.minimumHeight), of: panel)
+    }
+
+    /// Changes the height keeping the top edge in place, within the visible screen.
+    private func setContentHeight(_ height: CGFloat, of panel: NSPanel) {
+        var frame = panel.frame
+        let delta = height - panel.contentLayoutRect.height
+        guard abs(delta) > 0.5 else { return }
+        frame.size.height += delta
+        frame.origin.y -= delta
+        if let visible = panel.screen?.visibleFrame {
+            frame.size.height = min(frame.height, visible.height)
+            frame.origin.y = max(frame.origin.y, visible.minY)
+        }
+        panel.setFrame(frame, display: true, animate: panel.isVisible)
+    }
+
     private static func appearance(for theme: ReaderTheme) -> NSAppearance? {
         switch theme {
         case .system: nil
@@ -130,7 +195,8 @@ final class ReaderController: NSObject {
     private func observeState() {
         withObservationTracking {
             // Page fonts change the page's height once they are downloaded.
-            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts)
+            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts,
+                 state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()
@@ -145,7 +211,7 @@ final class ReaderController: NSObject {
         let actions = ReaderActions(
             detach: { [weak self] in self?.detach() },
             attach: { [weak self] in self?.attach() },
-            openSettings: { [weak self] in self?.showSettings() }
+            editCustomAccent: { [weak self] in self?.editCustomAccent() }
         )
         let host = NSHostingController(rootView: ReaderView(state: state, model: model, player: player, actions: actions))
         // The popover and window set the size; the SwiftUI content fills it.
@@ -164,14 +230,20 @@ final class ReaderController: NSObject {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.contentViewController = makeHost()
-        panel.contentMinSize = NSSize(width: ReaderLayout.minimumWidth, height: ReaderLayout.minimumHeight)
-        panel.contentMaxSize = NSSize(width: ReaderLayout.maximumWidth, height: CGFloat.greatestFiniteMagnitude)
         panel.delegate = self
         lastAppliedSize = state.size
         if !panel.setFrameUsingName(Self.frameName) || !Self.isOnScreen(panel.frame) {
             placeNearStatusItem(panel)
         }
         panel.setFrameAutosaveName(Self.frameName)
+        // The saved frame may come from the other mode.
+        if state.viewMode == .playerOnly {
+            setContentHeight(ReaderLayout.playerOnlyHeight, of: panel)
+        } else if panel.contentLayoutRect.height < ReaderLayout.minimumHeight {
+            setContentHeight(height, of: panel)
+        }
+        panelContent = PanelContent(mode: state.viewMode, settingsHeight: nil)
+        fitPanelToContent(panel)
         return panel
     }
 
@@ -196,10 +268,53 @@ extension ReaderController: NSPopoverDelegate {
     func popoverWillShow(_ notification: Notification) {
         applyWindowSettings()
     }
+
+    /// The reader always reopens on the mushaf rather than in Settings.
+    func popoverDidClose(_ notification: Notification) {
+        state.isShowingSettings = false
+        model.overlay = nil
+    }
 }
 
 extension ReaderController: NSWindowDelegate {
     func windowDidEndLiveResize(_ notification: Notification) {
         lastAppliedSize = state.size
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        state.isShowingSettings = false
+    }
+}
+
+// MARK: Custom accent colour
+
+extension ReaderController {
+    /// Opens the system colour panel for the custom accent. A transient popover would close as soon as
+    /// the panel takes focus, so the popover stays open until the colour panel closes.
+    func editCustomAccent() {
+        let colorPanel = NSColorPanel.shared
+        colorPanel.showsAlpha = false
+        colorPanel.isContinuous = true
+        colorPanel.setTarget(self)
+        colorPanel.setAction(#selector(customAccentChanged(_:)))
+        let accent = state.customAccent
+        colorPanel.color = NSColor(srgbRed: accent.red, green: accent.green, blue: accent.blue, alpha: 1)
+        popover.behavior = .applicationDefined
+        NotificationCenter.default.addObserver(self, selector: #selector(colorPanelWillClose(_:)),
+                                               name: NSWindow.willCloseNotification, object: colorPanel)
+        colorPanel.orderFront(nil)
+    }
+
+    @objc private func customAccentChanged(_ sender: NSColorPanel) {
+        guard let rgb = sender.color.usingColorSpace(.sRGB) else { return }
+        state.customAccent = AccentRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+        state.accent = .custom
+    }
+
+    @objc private func colorPanelWillClose(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: NSColorPanel.shared)
+        NSColorPanel.shared.setTarget(nil)
+        NSColorPanel.shared.setAction(nil)
+        popover.behavior = .transient
     }
 }

@@ -8,6 +8,9 @@ enum ReaderLayout {
     static let translationTextHeight = 54.0
     static let translationHeight = 88.0
     static let playerHeight = 104.0
+    /// "Player only": the header, its divider, and the player.
+    static let playerOnlyHeight = headerHeight + 1 + playerHeight
+    static let settingsTabsHeight = 58.0
     /// Space kept free between the reader and the bottom of the screen.
     static let screenMargin = 16.0
     static let minimumWidth = 320.0
@@ -23,10 +26,25 @@ enum ReaderLayout {
         chromeHeight(showTranslation: showTranslation) + pageHeight.rounded(.up)
     }
 
+    /// Settings: the title bar, the tabs and their divider, then the tab's content down to its last setting.
+    static func settingsHeight(content: Double) -> Double {
+        headerHeight + settingsTabsHeight + 1 + content.rounded(.up)
+    }
+
     /// The popover size, clamped so it never extends past the visible screen area.
-    /// The page view shrinks the page to fit when the height is clamped.
-    static func popoverSize(width: Double, pageHeight: Double, showTranslation: Bool, availableHeight: Double) -> CGSize {
-        let height = min(preferredHeight(pageHeight: pageHeight, showTranslation: showTranslation), availableHeight - screenMargin)
-        return CGSize(width: width, height: max(height, minimumHeight))
+    /// The page view shrinks the page to fit when the height is clamped. While Settings are shown
+    /// (`settingsContentHeight` is set), the reader fits them exactly in either mode.
+    static func popoverSize(width: Double, pageHeight: Double, showTranslation: Bool, availableHeight: Double,
+                            mode: ReaderViewMode = .quranAndPlayer, settingsContentHeight: Double? = nil) -> CGSize {
+        let limit = availableHeight - screenMargin
+        let height: Double
+        if let settingsContentHeight {
+            height = min(settingsHeight(content: settingsContentHeight), limit)
+        } else if mode == .playerOnly {
+            height = playerOnlyHeight
+        } else {
+            height = max(min(preferredHeight(pageHeight: pageHeight, showTranslation: showTranslation), limit), minimumHeight)
+        }
+        return CGSize(width: width, height: height)
     }
 }

@@ -5,10 +5,11 @@ import SwiftUI
 struct ReaderActions {
     let detach: () -> Void
     let attach: () -> Void
-    let openSettings: () -> Void
+    let editCustomAccent: () -> Void
 }
 
-/// The reader: navigation header, mushaf page with its footer, the optional translation strip, and the player.
+/// The reader: navigation header, then either the mushaf page with its footer, the optional translation
+/// strip, and the player ("Quran + player"), or the player alone ("Player only"). Settings replace it in place.
 struct ReaderView: View {
     let state: AppState
     let model: ReaderModel
@@ -17,38 +18,52 @@ struct ReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            if let error = model.loadError {
-                missingData(error)
+            if state.isShowingSettings {
+                SettingsView(state: state, model: model, palette: palette, editCustomAccent: actions.editCustomAccent)
             } else {
-                ZStack(alignment: .top) {
-                    VStack(spacing: 0) {
-                        MushafPageView(model: model, theme: state.theme)
-                            .accessibilityLabel("Mushaf page \(model.pageNumber)")
-                        footer
+                header
+                Divider()
+                if let error = model.loadError {
+                    missingData(error)
+                } else if state.viewMode == .playerOnly {
+                    if let player { PlayerView(player: player, model: model, palette: palette) }
+                    Spacer(minLength: 0)
+                } else {
+                    ZStack(alignment: .top) {
+                        VStack(spacing: 0) {
+                            MushafPageView(model: model, theme: state.theme, accent: palette.accentColor)
+                                .accessibilityLabel("Mushaf page \(model.pageNumber)")
+                            footer
+                        }
+                        .background(palette.page)
+                        overlay
                     }
-                    .background(palette.page)
-                    overlay
-                }
-                if state.showTranslation {
-                    Divider()
-                    TranslationStrip(model: model, playing: player?.isActive ?? false, palette: palette)
-                }
-                if let player {
-                    Divider()
-                    PlayerView(player: player, model: model, palette: palette)
+                    if state.showTranslation {
+                        Divider()
+                        TranslationStrip(model: model, playing: player?.isActive ?? false, palette: palette)
+                    }
+                    if let player {
+                        Divider()
+                        PlayerView(player: player, model: model, palette: palette)
+                    }
                 }
             }
         }
         .background(palette.chrome)
         .foregroundStyle(palette.ink)
+        .tint(palette.accent)
         .animation(.easeOut(duration: 0.12), value: model.overlay)
         // The first time a layout with page fonts is shown, fetch them once.
         .task(id: model.state.script) { model.preparePageFonts() }
     }
 
-    private var palette: ReaderPalette { ReaderPalette(theme: state.theme) }
+    private var palette: ReaderPalette { ReaderPalette(state: state) }
+
+    /// In "Player only" mode there is no page to cover, so the surah picker and jump box open as popovers.
+    private func popoverBinding(_ overlay: ReaderModel.Overlay) -> Binding<Bool> {
+        Binding(get: { state.viewMode == .playerOnly && model.overlay == overlay },
+                set: { if !$0, model.overlay == overlay { model.overlay = nil } })
+    }
 
     // MARK: Header
 
@@ -70,30 +85,26 @@ struct ReaderView: View {
             .disabled(model.library == nil)
             .help("Go to a surah or juz")
             .accessibilityLabel("Go to a surah or juz. Current surah \(model.currentSurah?.nameSimple ?? "")")
+            .popover(isPresented: popoverBinding(.surahPicker), arrowEdge: .bottom) {
+                SurahPicker(model: model, palette: palette).frame(width: 300, height: 380)
+            }
 
             Spacer(minLength: 6)
 
-            if let store = model.store, store.layouts.count > 1 {
-                Button(action: model.toggleScript) {
-                    Text(scriptName(model.state.script))
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(Capsule().strokeBorder(palette.secondary.opacity(0.4)))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Switch script; the selected ayah stays in view")
-                .accessibilityLabel("Script: \(scriptName(model.state.script)). Switch script")
-            }
             headerButton("Jump to ayah or page (⌘L)", symbol: "magnifyingglass") { toggle(.jump) }
                 .disabled(model.library == nil)
+                .popover(isPresented: popoverBinding(.jump), arrowEdge: .bottom) {
+                    JumpBox(model: model, palette: palette, framed: false).frame(width: 300)
+                }
             if state.isDetached {
                 headerButton("Return to menu bar", symbol: "menubar.arrow.up.rectangle", action: actions.attach)
             } else {
                 headerButton("Detach window", symbol: "macwindow.on.rectangle", action: actions.detach)
             }
-            headerButton("Settings (⌘,)", symbol: "gearshape", action: actions.openSettings)
+            headerButton("Settings (⌘,)", symbol: "gearshape") {
+                model.overlay = nil
+                state.isShowingSettings = true
+            }
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
@@ -112,10 +123,6 @@ struct ReaderView: View {
 
     private func toggle(_ overlay: ReaderModel.Overlay) {
         model.overlay = model.overlay == overlay ? nil : overlay
-    }
-
-    private func scriptName(_ id: String) -> String {
-        id == "indopak" ? "IndoPak" : "Uthmani"
     }
 
     // MARK: Page footer
@@ -157,7 +164,7 @@ struct ReaderView: View {
     // MARK: Overlays and states
 
     @ViewBuilder private var overlay: some View {
-        switch model.overlay {
+        switch state.viewMode == .playerOnly ? nil : model.overlay {
         case .surahPicker:
             SurahPicker(model: model, palette: palette)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -248,15 +255,4 @@ struct TranslationStrip: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Translation of ayah \(model.state.selectedAyah.description)")
     }
-}
-
-/// Theme colours. System, Light, and Dark follow the window appearance; Sepia uses fixed colours.
-struct ReaderPalette {
-    let theme: ReaderTheme
-
-    var chrome: Color { theme == .sepia ? Color(red: 0.933, green: 0.894, blue: 0.812) : Color(nsColor: .windowBackgroundColor) }
-    var page: Color { theme == .sepia ? Color(red: 0.973, green: 0.941, blue: 0.871) : Color(nsColor: .textBackgroundColor) }
-    var ink: Color { theme == .sepia ? Color(red: 0.18, green: 0.141, blue: 0.086) : .primary }
-    var secondary: Color { theme == .sepia ? Color(red: 0.416, green: 0.353, blue: 0.259) : .secondary }
-    var accent: Color { theme == .sepia ? Color(red: 0.478, green: 0.306, blue: 0.114) : .accentColor }
 }

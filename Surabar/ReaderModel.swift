@@ -207,13 +207,6 @@ final class ReaderModel {
         if let page = try? store.firstPage(of: anchor, in: target) { state.pages[id] = page }
     }
 
-    func toggleScript() {
-        guard let store, store.layouts.count > 1 else { return }
-        let ids = store.layouts.map(\.id)
-        let index = ids.firstIndex(of: state.script) ?? 0
-        switchScript(to: ids[(index + 1) % ids.count])
-    }
-
     // MARK: Copying
 
     /// Copies the ayah's source text unchanged, with its reference and optionally its translation.
