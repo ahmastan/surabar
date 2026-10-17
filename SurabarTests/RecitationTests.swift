@@ -44,7 +44,9 @@ struct LoopTests {
         defaults.removePersistentDomain(forName: name)
         let state = AppState(defaults: defaults)
         let counts = [7, 286, 200]
-        return (state, RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled()))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("surabar-audio-\(UUID().uuidString)")
+        return (state, RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
+                                        timings: TimingsStore(ayahCounts: counts), audio: AudioCache(root: root)))
     }
 
     @Test func loopCyclesAndPersists() {
@@ -86,6 +88,23 @@ struct LoopTests {
         // The end of the partial pass loops back for two full passes.
         #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 1, ayah: 7), repetition: 1), rangePass: 0)?.rangePass == 1)
         #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 1, ayah: 7), repetition: 1), rangePass: 2) == nil)
+    }
+
+    @Test func playbackStopsAtTheChosenUnit() {
+        let (state, player) = makePlayer()
+        let ayah = AyahKey(surah: 2, ayah: 255)
+        player.unitEnd = { _, stop in stop == .page ? AyahKey(surah: 2, ayah: 256) : AyahKey(surah: 3, ayah: 92) }
+        #expect(state.playbackStop == .surah)
+        #expect(player.sequence(at: ayah).boundaryEnd == AyahKey(surah: 2, ayah: 286))
+        state.playbackStop = .page
+        #expect(player.sequence(at: ayah).boundaryEnd == AyahKey(surah: 2, ayah: 256))
+        state.playbackStop = .juz
+        #expect(player.sequence(at: ayah).boundaryEnd == AyahKey(surah: 3, ayah: 92))
+        state.playbackStop = .quran
+        #expect(player.sequence(at: ayah).boundaryEnd == AyahKey(surah: 3, ayah: 200), "the last ayah of the (test) Quran")
+        // A loop takes precedence.
+        player.setLoop(.unit)
+        #expect(player.sequence(at: ayah).range != nil)
     }
 
     @Test func pageLoopStaysOnThePageWhereItStarted() {

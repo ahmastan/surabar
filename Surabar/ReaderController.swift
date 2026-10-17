@@ -8,16 +8,18 @@ final class ReaderController: NSObject {
     private let state: AppState
     private let model: ReaderModel
     private let player: RecitationPlayer?
+    private let downloads: DownloadCenter?
     private let popover = NSPopover()
     private var panel: NSPanel?
     private weak var anchor: NSStatusBarButton?
 
     private static let frameName = "SurabarReaderWindow"
 
-    init(state: AppState, model: ReaderModel, player: RecitationPlayer?) {
+    init(state: AppState, model: ReaderModel, player: RecitationPlayer?, downloads: DownloadCenter?) {
         self.state = state
         self.model = model
         self.player = player
+        self.downloads = downloads
         super.init()
         popover.behavior = .transient
         popover.animates = true
@@ -196,7 +198,7 @@ final class ReaderController: NSObject {
         withObservationTracking {
             // Page fonts change the page's height once they are downloaded.
             _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts,
-                 state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights)
+                 state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights, state.showsDownloads)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()
@@ -213,7 +215,7 @@ final class ReaderController: NSObject {
             attach: { [weak self] in self?.attach() },
             editCustomAccent: { [weak self] in self?.editCustomAccent() }
         )
-        let host = NSHostingController(rootView: ReaderView(state: state, model: model, player: player, actions: actions))
+        let host = NSHostingController(rootView: ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions))
         // The popover and window set the size; the SwiftUI content fills it.
         host.sizingOptions = []
         return host

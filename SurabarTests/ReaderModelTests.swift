@@ -149,6 +149,16 @@ struct ReaderModelTests {
         #expect(model.skipTarget(from: AyahKey(surah: 114, ayah: 6), direction: 1, unit: .page) == nil)
     }
 
+    @Test func stopPointsAndJuzSurahs() throws {
+        let model = makeModel()
+        let ayah = AyahKey(surah: 2, ayah: 255)
+        #expect(model.unitEnd(of: ayah, .page) == model.pageRange(of: ayah)?.upperBound)
+        #expect(model.unitEnd(of: ayah, .juz) == AyahKey(surah: 3, ayah: 92), "2:255 is in juz 3")
+        #expect(model.unitEnd(of: ayah, .surah) == nil)
+        #expect(model.surahs(inJuz: 1) == [1, 2])
+        #expect(model.surahs(inJuz: 30) == Array(78 ... 114))
+    }
+
     @Test func browsingStopsFollowingPlaybackUntilAskedBack() {
         let model = makeModel()
         model.followPlayback(to: AyahKey(surah: 2, ayah: 255))

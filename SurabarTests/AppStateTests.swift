@@ -25,6 +25,8 @@ struct AppStateTests {
         #expect(state.pages.isEmpty)
         #expect(state.accent == .system)
         #expect(state.menuBarIcon == .surabar)
+        #expect(state.playbackStop == .surah)
+        #expect(state.cacheBudget == 1_000_000_000)
         #expect(state.viewMode == .quranAndPlayer)
         #expect(state.skipUnit == .surah)
         #expect(state.repeatCount == 0)
@@ -49,6 +51,8 @@ struct AppStateTests {
         first.repeatCount = 5
         first.loopMode = .ayah
         first.menuBarIcon = .moon
+        first.playbackStop = .juz
+        first.cacheBudget = 2_000_000_000
         first.isShowingSettings = true
 
         let relaunched = AppState(defaults: defaults)
@@ -67,6 +71,8 @@ struct AppStateTests {
         #expect(relaunched.repeatCount == 5)
         #expect(relaunched.loopMode == .ayah)
         #expect(relaunched.menuBarIcon == .moon)
+        #expect(relaunched.playbackStop == .juz)
+        #expect(relaunched.cacheBudget == 2_000_000_000)
         // The reader always reopens on the mushaf.
         #expect(!relaunched.isShowingSettings)
     }

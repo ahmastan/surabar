@@ -1,11 +1,15 @@
 import MushafRendering
 import QuranStore
+import Recitation
 import SwiftUI
 
 /// Searchable list of surahs and juz, shown over the page.
 struct SurahPicker: View {
     let model: ReaderModel
     let palette: ReaderPalette
+    /// Offers a download beside each surah and juz, for the current reciter.
+    var downloads: DownloadCenter?
+    var reciter: Reciter?
     @State private var mode = Mode.surahs
     @State private var query = ""
     @FocusState private var searchFocused: Bool
@@ -31,7 +35,7 @@ struct SurahPicker: View {
                     if mode == .surahs {
                         ForEach(surahs) { surah in
                             row(number: surah.number, title: surah.nameSimple, detail: "\(surah.ayahCount) ayahs · \(surah.revelationPlace.capitalized)",
-                                trailing: surah.nameArabic, current: surah.number == model.currentSurah?.number) {
+                                trailing: surah.nameArabic, current: surah.number == model.currentSurah?.number, surahs: [surah.number]) {
                                 model.overlay = nil
                                 model.goTo(surah: surah.number)
                             }
@@ -39,7 +43,8 @@ struct SurahPicker: View {
                         }
                     } else {
                         ForEach(juzList, id: \.self) { juz in
-                            row(number: juz, title: "Juz \(juz)", detail: "", trailing: "", current: juz == model.pageInfo?.juz) {
+                            row(number: juz, title: "Juz \(juz)", detail: "", trailing: "", current: juz == model.pageInfo?.juz,
+                                surahs: model.surahs(inJuz: juz)) {
                                 model.overlay = nil
                                 model.goTo(juz: juz)
                             }
@@ -81,8 +86,23 @@ struct SurahPicker: View {
         }
     }
 
-    private func row(number: Int, title: String, detail: String, trailing: String, current: Bool,
+    private func row(number: Int, title: String, detail: String, trailing: String, current: Bool, surahs: [Int],
                      action: @escaping () -> Void) -> some View {
+        HStack(spacing: 2) {
+            rowButton(number: number, title: title, detail: detail, trailing: trailing, current: current, action: action)
+            if let downloads, let reciter {
+                DownloadButton(status: surahs.count == 1 ? downloads.status(surah: surahs[0], reciter: reciter)
+                                                         : downloads.status(surahs: surahs, reciter: reciter),
+                               title: title, palette: palette,
+                               download: { downloads.download(surahs: surahs, reciter: reciter) },
+                               cancel: { downloads.cancel(surahs: surahs, reciter: reciter) },
+                               delete: { downloads.delete(surahs: surahs, reciter: reciter) })
+            }
+        }
+    }
+
+    private func rowButton(number: Int, title: String, detail: String, trailing: String, current: Bool,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Text("\(number)").monospacedDigit().foregroundStyle(palette.secondary).frame(width: 26, alignment: .trailing)

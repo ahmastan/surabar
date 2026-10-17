@@ -45,6 +45,22 @@ enum SkipUnit: String, CaseIterable, Identifiable {
     }
 }
 
+/// Where playback stops when no loop is on (Settings › Player).
+enum PlaybackStop: String, CaseIterable, Identifiable {
+    case page, surah, juz, quran
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .page: "Page"
+        case .surah: "Surah"
+        case .juz: "Juz"
+        case .quran: "End of Quran"
+        }
+    }
+}
+
 /// The Loop button's modes, cycled in this order. `unit` repeats the surah or page, following the skip unit.
 enum LoopMode: String, CaseIterable, Identifiable {
     case off, ayah, unit
@@ -178,6 +194,8 @@ final class AppState {
         static let skipUnit = "skipUnit"
         static let repeatCount = "loopRepeatCount"
         static let loopMode = "loopMode"
+        static let playbackStop = "playbackStop"
+        static let cacheBudget = "audioCacheBudget"
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
         static let translation = "showTranslation"
@@ -230,9 +248,22 @@ final class AppState {
         didSet { defaults.set(loopMode.rawValue, forKey: Keys.loopMode) }
     }
 
+    var playbackStop: PlaybackStop {
+        didSet { defaults.set(playbackStop.rawValue, forKey: Keys.playbackStop) }
+    }
+
+    /// Space for recordings saved while playing, in bytes; downloads are not counted.
+    var cacheBudget: Int {
+        didSet { defaults.set(cacheBudget, forKey: Keys.cacheBudget) }
+    }
+
+    static let cacheBudgets = [500_000_000, 1_000_000_000, 2_000_000_000, 5_000_000_000]
+
     /// Settings shown in place of the reader. Not saved: the reader always opens on the mushaf.
     var isShowingSettings = false
     var settingsTab = SettingsTab.appearance
+    /// "Manage downloads", shown within Settings › Player.
+    var showsDownloads = false
     /// The measured height of each Settings tab's content; the reader resizes to fit it.
     var settingsContentHeights: [SettingsTab: Double] = [:]
 
@@ -299,6 +330,9 @@ final class AppState {
         let storedCount = defaults.object(forKey: Keys.repeatCount) as? Int ?? 0
         repeatCount = Self.repeatCounts.contains(storedCount) ? storedCount : 0
         loopMode = defaults.string(forKey: Keys.loopMode).flatMap(LoopMode.init(rawValue:)) ?? .off
+        playbackStop = defaults.string(forKey: Keys.playbackStop).flatMap(PlaybackStop.init(rawValue:)) ?? .surah
+        let storedBudget = defaults.integer(forKey: Keys.cacheBudget)
+        cacheBudget = Self.cacheBudgets.contains(storedBudget) ? storedBudget : 1_000_000_000
         keepOnTop = defaults.object(forKey: Keys.keepOnTop) as? Bool ?? true
         isDetached = defaults.bool(forKey: Keys.detached)
         showTranslation = defaults.object(forKey: Keys.translation) as? Bool ?? true

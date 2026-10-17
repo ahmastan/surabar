@@ -234,6 +234,21 @@ final class ReaderModel {
         return ayahsStarting(onPage: page)
     }
 
+    /// The surahs with ayahs in a juz, which downloading the juz fetches.
+    func surahs(inJuz juz: Int) -> [Int] {
+        guard let store, let first = try? store.firstAyah(ofJuz: juz), let last = try? store.lastAyah(ofJuz: juz) else { return [] }
+        return Array(first.surah ... last.surah)
+    }
+
+    /// The last ayah of the page or juz `ayah` is in, where "Stop playback at" ends playback.
+    func unitEnd(of ayah: AyahKey, _ stop: PlaybackStop) -> AyahKey? {
+        switch stop {
+        case .page: pageRange(of: ayah)?.upperBound
+        case .juz: (try? store?.juz(of: ayah)).flatMap { try? store?.lastAyah(ofJuz: $0) }
+        case .surah, .quran: nil
+        }
+    }
+
     /// Where the player's outer skip buttons go from `ayah`. Forward (+1): the next surah or page.
     /// Back (−1): the start of the current surah or page, or the previous one when already at its start.
     func skipTarget(from ayah: AyahKey, direction: Int, unit: SkipUnit) -> AyahKey? {

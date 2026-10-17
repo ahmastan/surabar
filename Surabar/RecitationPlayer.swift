@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import MushafRendering
+import Network
 import Observation
 import Recitation
 
@@ -33,6 +34,10 @@ final class RecitationPlayer {
     @ObservationIgnored var onUserAction: (() -> Void)?
     /// The ayahs that start on the page where an ayah starts, in the current layout.
     @ObservationIgnored var pageRange: ((AyahKey) -> ClosedRange<AyahKey>?)?
+    /// Called after the position jumps within an ayah, so Now Playing shows it.
+    @ObservationIgnored var onSeek: (() -> Void)?
+    /// The last ayah of the page or juz an ayah is in, for "Stop playback at".
+    @ObservationIgnored var unitEnd: ((AyahKey, PlaybackStop) -> AyahKey?)?
 
     /// One ayah or basmalah located in a surah recording.
     private struct Segment {
@@ -46,7 +51,10 @@ final class RecitationPlayer {
     private let state: AppState
     private let ayahCounts: [Int]
     private let timings: TimingsStore
+    private let audio: AudioCache
     @ObservationIgnored private let player = AVQueuePlayer()
+    @ObservationIgnored private let network = NWPathMonitor()
+    @ObservationIgnored private var online = true
     @ObservationIgnored private var segment: Segment?
     @ObservationIgnored private var boundaryObserver: Any?
     @ObservationIgnored private var timeObserver: Any?
@@ -60,11 +68,12 @@ final class RecitationPlayer {
     /// so the loop stays on it even when an ayah crosses a page.
     @ObservationIgnored private var loopRange: ClosedRange<AyahKey>?
 
-    init(state: AppState, ayahCounts: [Int], reciters: [Reciter], timings: TimingsStore? = nil) {
+    init(state: AppState, ayahCounts: [Int], reciters: [Reciter], timings: TimingsStore, audio: AudioCache) {
         self.state = state
         self.ayahCounts = ayahCounts
         self.reciters = reciters
-        self.timings = timings ?? TimingsStore(ayahCounts: ayahCounts)
+        self.timings = timings
+        self.audio = audio
         player.actionAtItemEnd = .pause
         // Relaunch restores the last position, paused. Playback never starts on its own.
         if let ayah = state.lastPlayedAyah, ayahCounts.indices.contains(ayah.surah - 1) {
@@ -72,6 +81,11 @@ final class RecitationPlayer {
             status = .paused
         }
         observe()
+        network.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in self?.online = online }
+        }
+        network.start(queue: .main)
     }
 
     var reciter: Reciter { reciters.first { $0.id == state.reciterID } ?? reciters[0] }
@@ -169,6 +183,7 @@ final class RecitationPlayer {
         let seconds = segment.from + (segment.to - segment.from) * min(max(fraction, 0), 0.99)
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
         elapsed = seconds - segment.from
+        onSeek?()
     }
 
     func setSpeed(_ speed: Double) {
@@ -193,9 +208,15 @@ final class RecitationPlayer {
     // MARK: Sequencing
 
     /// The playback order around `ayah` with the current Loop settings. Without a loop, playback stops
-    /// at the end of the surah being played; Phase 6 adds the other boundaries.
+    /// at the end of the page, surah, juz, or Quran the ayah is in (Settings › Player).
     func sequence(at ayah: AyahKey) -> PlaybackSequence {
-        var sequence = PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1]))
+        let surahEnd = AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1])
+        let end: AyahKey = switch state.playbackStop {
+        case .surah: surahEnd
+        case .quran: AyahKey(surah: ayahCounts.count, ayah: ayahCounts[ayahCounts.count - 1])
+        case .page, .juz: unitEnd?(ayah, state.playbackStop) ?? surahEnd
+        }
+        var sequence = PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: end)
         let count: RepeatCount = state.repeatCount == 0 ? .forever : .times(state.repeatCount)
         switch state.loopMode {
         case .off:
@@ -254,7 +275,7 @@ final class RecitationPlayer {
             } catch {
                 guard generation == self.generation, !Task.isCancelled else { return }
                 player.pause()
-                status = .failed("Couldn't load \(step.ayah). Check your connection")
+                status = .failed(failureMessage(step.ayah))
             }
         }
     }
@@ -269,11 +290,11 @@ final class RecitationPlayer {
             player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
         } else {
             let items = player.items()
-            if items.count > 1, (items[1].asset as? AVURLAsset)?.url == segment.url {
+            if items.count > 1, (items[1].asset as? AVURLAsset).map({ AudioCache.remoteURL(for: $0.url) }) == segment.url {
                 player.advanceToNextItem()
             } else {
                 player.removeAllItems()
-                player.insert(AVPlayerItem(url: segment.url), after: nil)
+                player.insert(item(segment.url), after: nil)
             }
             if segment.from > 0.01 { player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) }
         }
@@ -282,7 +303,12 @@ final class RecitationPlayer {
         prepareFollowing(segment)
     }
 
-    private var currentURL: URL? { (player.currentItem?.asset as? AVURLAsset)?.url }
+    /// The remote URL of the recording being played (items load through the audio cache's scheme).
+    private var currentURL: URL? { (player.currentItem?.asset as? AVURLAsset).map { AudioCache.remoteURL(for: $0.url) } }
+
+    private func item(_ url: URL) -> AVPlayerItem {
+        AVPlayerItem(asset: audio.asset(for: url))
+    }
 
     /// Sets a boundary observer at the end of the segment.
     private func watchEnd(of segment: Segment) {
@@ -325,7 +351,7 @@ final class RecitationPlayer {
             guard !Task.isCancelled, generation == self.generation else { return }
             guard let segment = try? await resolve(next.step, rangePass: next.rangePass, reciter: reciter) else {
                 player.pause()
-                status = .failed("Couldn't load \(next.step.ayah). Check your connection")
+                status = .failed(failureMessage(next.step.ayah))
                 return
             }
             guard generation == self.generation else { return }
@@ -342,7 +368,7 @@ final class RecitationPlayer {
             guard self.segment?.step == segment.step, following.url != currentURL else { return }
             let items = player.items()
             if items.count > 1 { player.remove(items[1]) }
-            player.insert(AVPlayerItem(url: following.url), after: player.currentItem)
+            player.insert(item(following.url), after: player.currentItem)
         }
     }
 
@@ -402,7 +428,16 @@ final class RecitationPlayer {
         guard let segment else { return }
         duration = segment.to - segment.from
         elapsed = min(max(time.seconds - segment.from, 0), duration)
+        // The cache fetches a few minutes past this point.
+        if let total = player.currentItem?.duration.seconds, total.isFinite, total > 0, let url = currentURL {
+            audio.setPlayhead(time.seconds / total, of: url)
+        }
         if player.currentItem?.status == .failed { itemFailedToLoad() }
+    }
+
+    /// Offline, audio that was never saved cannot play; otherwise the connection or the server failed.
+    private func failureMessage(_ ayah: AyahKey) -> String {
+        online ? "Couldn't load \(ayah). Check your connection" : "\(ayah) isn't downloaded. You're offline"
     }
 
     /// Retry the recording once, then pause on the ayah and offer Retry.
@@ -415,7 +450,7 @@ final class RecitationPlayer {
             return
         }
         player.pause()
-        status = .failed("Couldn't load \(segment.step.ayah). Check your connection")
+        status = .failed(failureMessage(segment.step.ayah))
     }
 
     #if DEBUG

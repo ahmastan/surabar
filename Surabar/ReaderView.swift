@@ -14,12 +14,14 @@ struct ReaderView: View {
     let state: AppState
     let model: ReaderModel
     let player: RecitationPlayer?
+    let downloads: DownloadCenter?
     let actions: ReaderActions
 
     var body: some View {
         VStack(spacing: 0) {
             if state.isShowingSettings {
-                SettingsView(state: state, model: model, palette: palette, editCustomAccent: actions.editCustomAccent)
+                SettingsView(state: state, model: model, player: player, downloads: downloads, palette: palette,
+                             editCustomAccent: actions.editCustomAccent)
             } else {
                 header
                 Divider()
@@ -92,7 +94,7 @@ struct ReaderView: View {
             .help("Go to a surah or juz")
             .accessibilityLabel("Go to a surah or juz. Current surah \(model.currentSurah?.nameSimple ?? "")")
             .popover(isPresented: popoverBinding(.surahPicker), arrowEdge: .bottom) {
-                SurahPicker(model: model, palette: palette).frame(width: 300, height: 380)
+                SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter).frame(width: 300, height: 380)
             }
 
             Spacer(minLength: 6)
@@ -178,7 +180,7 @@ struct ReaderView: View {
     @ViewBuilder private var backToPlaying: some View {
         if showsBackToPlaying, let ayah = player?.ayah {
             Button { model.returnToPlayback(at: ayah) } label: {
-                Label("Back to playing \(ayah)", systemImage: "arrow.uturn.backward")
+                Label("Back to playing \(ayah.description)", systemImage: "arrow.uturn.backward")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(palette.onAccent)
                     .padding(.horizontal, 14)
@@ -197,7 +199,7 @@ struct ReaderView: View {
     @ViewBuilder private var overlay: some View {
         switch state.viewMode == .playerOnly ? nil : model.overlay {
         case .surahPicker:
-            SurahPicker(model: model, palette: palette)
+            SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter)
                 .transition(.opacity.combined(with: .move(edge: .top)))
         case .jump:
             JumpBox(model: model, palette: palette)

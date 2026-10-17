@@ -239,6 +239,28 @@ public final class QuranStore: Sendable {
         }
     }
 
+    /// The juz (1–30) an ayah belongs to.
+    public func juz(of ayah: AyahKey) throws -> Int {
+        try queue.read { db in
+            guard let juz = try Int.fetchOne(db, sql: "SELECT juz FROM ayahs WHERE surah = ? AND ayah = ?",
+                                             arguments: [ayah.surah, ayah.ayah]) else {
+                throw QuranStoreError("\(ayah) is not in the database")
+            }
+            return juz
+        }
+    }
+
+    /// The last ayah of a juz (1–30).
+    public func lastAyah(ofJuz juz: Int) throws -> AyahKey {
+        try queue.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT surah, ayah FROM ayahs WHERE juz = ? ORDER BY surah DESC, ayah DESC LIMIT 1",
+                                             arguments: [juz]) else {
+                throw QuranStoreError("Juz \(juz) is not in the database")
+            }
+            return AyahKey(surah: row[0], ayah: row[1])
+        }
+    }
+
     // MARK: Ayahs
 
     /// The ayah's source words joined by single spaces, as the layout's word data has them.

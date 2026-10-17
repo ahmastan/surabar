@@ -1,10 +1,13 @@
 import MushafRendering
+import Recitation
 import SwiftUI
 
 /// Settings, shown in place of the reader content in the popover or detached window.
 struct SettingsView: View {
     @Bindable var state: AppState
     let model: ReaderModel
+    let player: RecitationPlayer?
+    let downloads: DownloadCenter?
     let palette: ReaderPalette
     /// Opens the colour panel for the custom accent.
     let editCustomAccent: () -> Void
@@ -14,7 +17,10 @@ struct SettingsView: View {
             HStack {
                 Text("Settings").font(.headline)
                 Spacer()
-                Button("Done") { state.isShowingSettings = false }
+                Button("Done") {
+                    state.isShowingSettings = false
+                    state.showsDownloads = false
+                }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .help("Return to the reader (Esc)")
@@ -28,7 +34,12 @@ struct SettingsView: View {
                     switch state.settingsTab {
                     case .appearance: appearance
                     case .reading: reading
-                    case .player: player
+                    case .player:
+                        if state.showsDownloads, let downloads, let player {
+                            DownloadsView(downloads: downloads, model: model, reciter: player.reciter, palette: palette)
+                        } else {
+                            playerTab
+                        }
                     case .general: general
                     }
                 }
@@ -51,7 +62,10 @@ struct SettingsView: View {
         HStack(spacing: 2) {
             ForEach(SettingsTab.allCases) { tab in
                 let selected = state.settingsTab == tab
-                Button { state.settingsTab = tab } label: {
+                Button {
+                    state.settingsTab = tab
+                    state.showsDownloads = false
+                } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.symbol).font(.system(size: 17)).frame(height: 20)
                         Text(tab.title).font(.caption)
@@ -126,15 +140,21 @@ struct SettingsView: View {
 
     // MARK: Player
 
-    @ViewBuilder private var player: some View {
+    @ViewBuilder private var playerTab: some View {
         SettingsGroup(palette: palette) {
             SettingsRow("Skip buttons move by", palette: palette, stacked: true,
                         footnote: "The outer buttons beside previous and next ayah.") {
                 segmented($state.skipUnit, SkipUnit.allCases, title: \.title)
             }
+            Divider()
+            SettingsRow("Stop playback at the end of the", palette: palette, stacked: true,
+                        footnote: "When the Loop is off. A loop repeats instead of stopping.") {
+                segmented($state.playbackStop, PlaybackStop.allCases, title: \.title)
+            }
         }
         SettingsGroup(title: "Loop", palette: palette) {
-            SettingsRow("Repeat", palette: palette) {
+            SettingsRow("Repeat", palette: palette,
+                        footnote: "The Loop button's defaults: each ayah, or the whole surah or page, plays this many times.") {
                 Picker("Repeat", selection: $state.repeatCount) {
                     ForEach(AppState.repeatCounts, id: \.self) { count in
                         Text(count == 0 ? "Until stopped" : "\(count) times").tag(count)
@@ -144,8 +164,7 @@ struct SettingsView: View {
                 .fixedSize()
             }
             Divider()
-            SettingsRow("Pause between repeats", palette: palette,
-                        footnote: "The Loop button's defaults: each ayah, or the whole surah or page, plays this many times.") {
+            SettingsRow("Pause between repeats", palette: palette) {
                 Picker("Pause between repeats", selection: $state.repeatPause) {
                     ForEach(0 ... 5, id: \.self) { seconds in
                         Text(seconds == 0 ? "None" : "\(seconds) s").tag(Double(seconds))
@@ -155,6 +174,44 @@ struct SettingsView: View {
                 .fixedSize()
             }
         }
+        storage
+    }
+
+    @ViewBuilder private var storage: some View {
+        if let downloads, let player {
+            SettingsGroup(title: "Offline listening", palette: palette) {
+                SettingsRow("Downloads", value: downloadSummary(downloads, player.reciter), palette: palette) {
+                    Button("Manage…") { state.showsDownloads = true }
+                }
+                Divider()
+                SettingsRow("Saved while playing", value: bytes(downloads.cachedBytes), palette: palette,
+                            footnote: "Recitations you play are saved up to this limit, so they play again without the internet. "
+                                + "The oldest are removed first; downloads aren't counted or removed.") {
+                    Picker("Limit", selection: Binding(get: { state.cacheBudget }, set: { downloads.setBudget($0) })) {
+                        ForEach(AppState.cacheBudgets, id: \.self) { Text("Up to \(bytes($0))").tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Clear Saved Recitations", action: downloads.clearCache)
+                        .disabled(downloads.cachedBytes == 0)
+                }
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func downloadSummary(_ downloads: DownloadCenter, _ reciter: Reciter) -> String {
+        let count = downloads.downloadedSurahs(reciter: reciter).count
+        let size = bytes(downloads.downloadedBytes)
+        return count == 0 ? size : "\(size) · \(count) surah\(count == 1 ? "" : "s")"
+    }
+
+    private func bytes(_ count: Int) -> String {
+        count == 0 ? "None" : ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
 
     // MARK: General
@@ -315,7 +372,10 @@ struct SettingsRow<Control: View>: View {
                 control
             } else {
                 HStack {
-                    Text(label)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(label)
+                        if let value { Text(value).font(.caption).foregroundStyle(palette.secondary).monospacedDigit() }
+                    }
                     Spacer(minLength: 12)
                     control
                 }

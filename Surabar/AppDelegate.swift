@@ -7,6 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let state = AppState()
     private var model: ReaderModel!
     private var player: RecitationPlayer?
+    private var downloads: DownloadCenter?
+    private var nowPlaying: NowPlayingController?
+    private var interruptions: PlaybackInterruptions?
     private var reader: ReaderController!
     private var statusItem: StatusItemController!
     private var keyMonitor: Any?
@@ -17,15 +20,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
         if let store = model.store {
-            let player = RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount),
-                                          reciters: ReciterCatalogLoader.bundled())
+            let counts = store.surahs.map(\.ayahCount)
+            let timings = TimingsStore(ayahCounts: counts)
+            let audio = AudioCache()
+            let player = RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
+                                          timings: timings, audio: audio)
+            downloads = DownloadCenter(audio: audio, timings: timings, state: state)
+            player.unitEnd = { [weak self] ayah, stop in self?.model.unitEnd(of: ayah, stop) }
+            nowPlaying = NowPlayingController(player: player, state: state) { store.surah($0)?.nameSimple ?? "Surah \($0)" }
+            interruptions = PlaybackInterruptions { [weak player] in player?.pause() }
             player.onAyahChange = { [weak self] ayah in self?.model.followPlayback(to: ayah) }
             player.onUserAction = { [weak self] in self?.model.followsPlayback = true }
             player.pageRange = { [weak self] ayah in self?.model.pageRange(of: ayah) }
             model.playAyah = { [weak player] ayah in player?.play(from: ayah) }
             self.player = player
         }
-        reader = ReaderController(state: state, model: model, player: player)
+        reader = ReaderController(state: state, model: model, player: player, downloads: downloads)
         statusItem = StatusItemController(state: state, reader: reader)
         // Local event monitors are called on the main thread.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

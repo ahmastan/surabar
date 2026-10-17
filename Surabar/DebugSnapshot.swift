@@ -37,6 +37,10 @@ enum DebugSnapshot {
             case "count": Int(parts[1]).map { state.repeatCount = $0 }
             case "skip": SkipUnit(rawValue: parts[1]).map { state.skipUnit = $0 }
             case "mode": state.viewMode = parts[1] == "player" ? .playerOnly : .quranAndPlayer
+            case "downloads":
+                state.isShowingSettings = true
+                state.settingsTab = .player
+                state.showsDownloads = true
             case "settings":
                 state.isShowingSettings = true
                 SettingsTab(rawValue: parts[1]).map { state.settingsTab = $0 }
@@ -57,9 +61,13 @@ enum DebugSnapshot {
                                             mode: state.viewMode)
         let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {})
         let player = model.store.map { store in
-            RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
+            RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled(),
+                             timings: TimingsStore(ayahCounts: store.surahs.map(\.ayahCount)), audio: AudioCache())
         }
-        let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, actions: actions))
+        let downloads = player.map { _ in
+            DownloadCenter(audio: AudioCache(), timings: TimingsStore(ayahCounts: model.store!.surahs.map(\.ayahCount)), state: state)
+        }
+        let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions))
         view.frame = CGRect(origin: .zero, size: size)
         switch state.theme {
         case .dark: view.appearance = NSAppearance(named: .darkAqua)
@@ -105,6 +113,10 @@ enum DebugPlaybackProbe {
         UserDefaults().removePersistentDomain(forName: suite)
         let state = AppState(defaults: UserDefaults(suiteName: suite)!)
         if let reciter = ProcessInfo.processInfo.environment["SURABAR_PROBE_RECITER"].flatMap(Int.init) { state.reciterID = reciter }
+        // SURABAR_PROBE_STOP=page|surah|juz|quran
+        if let stop = ProcessInfo.processInfo.environment["SURABAR_PROBE_STOP"].flatMap(PlaybackStop.init(rawValue:)) {
+            state.playbackStop = stop
+        }
         // SURABAR_PROBE_LOOP="ayah 2" or "unit 0" (the surah; 0 repeats until stopped).
         if let loop = ProcessInfo.processInfo.environment["SURABAR_PROBE_LOOP"]?.split(separator: " "), loop.count == 2,
            let mode = LoopMode(rawValue: String(loop[0])), let count = Int(loop[1]) {
@@ -112,7 +124,11 @@ enum DebugPlaybackProbe {
             state.repeatCount = count
             state.repeatPause = 1
         }
-        let player = RecitationPlayer(state: state, ayahCounts: library.store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
+        let counts = library.store.surahs.map(\.ayahCount)
+        // SURABAR_PROBE_AUDIO_DIR keeps the probe's saved audio out of the app's cache.
+        let audio = ProcessInfo.processInfo.environment["SURABAR_PROBE_AUDIO_DIR"].map { AudioCache(root: URL(fileURLWithPath: $0)) } ?? AudioCache()
+        let player = RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
+                                      timings: TimingsStore(ayahCounts: counts), audio: audio)
         let queue = player.debugQueuePlayer
         queue.isMuted = true
         let origin = CACurrentMediaTime()
