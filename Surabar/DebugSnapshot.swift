@@ -57,6 +57,7 @@ enum DebugSnapshot {
                 state.loopMode = .range
             case "glass": GlassStyle(rawValue: parts[1]).map { state.glassStyle = $0 }
             case "screen": Double(parts[1]).map { available = $0 }
+            case "manzilday": state.manzilRoutine.setRead(true, on: Date())
             case "expand": expandedJuz = Set(parts[1].split(separator: ",").compactMap { Int($0) })
             case "loop": LoopMode(rawValue: parts[1]).map { state.loopMode = $0 }
             case "count": Int(parts[1]).map { state.repeatCount = $0 }
@@ -84,6 +85,10 @@ enum DebugSnapshot {
             }
         }
         model.overlay = overlay
+        if environment["SURABAR_SNAPSHOT_STATE"]?.contains("overlay=manzil") == true {
+            model.overlay = nil
+            model.showManzil()
+        }
         let width = state.size.width
         let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)),
                                             showTranslation: state.showTranslation, availableHeight: available,
@@ -96,6 +101,7 @@ enum DebugSnapshot {
         let downloads = player.map { _ in
             DownloadCenter(audio: AudioCache(), timings: TimingsStore(ayahCounts: model.store!.surahs.map(\.ayahCount)), state: state)
         }
+        player?.readsManzil = { model.readingManzil }
         var reader = ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions)
         reader.debugExpandedJuz = expandedJuz
         let view = NSHostingView(rootView: reader)
@@ -229,7 +235,21 @@ enum DebugPlaybackProbe {
                 }
             }
         }
-        player.play(from: ayah)
+        // SURABAR_PROBE_MANZIL=1: Play Manzil from the probe's ayah (which must be in the Manzil).
+        // SURABAR_PROBE_AFTER_MANZIL=1: Play Manzil, then 4 s later play the probe's ayah, as playing a surah does.
+        if ProcessInfo.processInfo.environment["SURABAR_PROBE_AFTER_MANZIL"] != nil {
+            player.playManzil()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                print("  [probe] playing \(ayah) after the Manzil; loop mode: \(state.loopMode.rawValue)")
+                player.play(from: ayah)
+                print("  [probe] loop mode now: \(state.loopMode.rawValue)")
+            }
+        } else if ProcessInfo.processInfo.environment["SURABAR_PROBE_MANZIL"] != nil {
+            player.onManzilFinished = { print("  [manzil] finished: Read today set") }
+            player.playManzil(from: ayah)
+        } else {
+            player.play(from: ayah)
+        }
         print("playing reciter \(state.reciterID) from \(ayah) for \(Int(seconds)) s (muted)")
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             print(String(format: "status: %@, at %@, %.1f s into %@", "\(player.status)", player.ayah?.description ?? "-",

@@ -2,6 +2,7 @@ import AppKit
 import MushafRendering
 import Observation
 import QuranStore
+import Recitation
 
 /// Reading state and navigation shared by every reader surface. Positions are kept as ayahs;
 /// page numbers are only ever looked up for the current layout.
@@ -21,6 +22,13 @@ final class ReaderModel {
     let library: QuranLibrary?
     let loadError: String?
     var overlay: Overlay?
+    /// The main area shows the Manzil, scrolling, instead of the mushaf page.
+    private(set) var readingManzil = false {
+        didSet { if oldValue && !readingManzil { leftManzil?() } }
+    }
+    /// Called when the reader leaves the Manzil; set by the app.
+    @ObservationIgnored var leftManzil: (() -> Void)?
+
     /// The direction of the last page change: +1 forward (the next page), −1 back, 0 for a jump to
     /// another script or the first load. The page slides in from that side.
     private(set) var lastTurn = 0
@@ -40,6 +48,7 @@ final class ReaderModel {
 
     @ObservationIgnored private var pageCache: [String: MushafPage] = [:]
     @ObservationIgnored private var layoutCache: [String: PageLayout] = [:]
+    @ObservationIgnored private var manzilLayouts: [String: PageLayout] = [:]
     @ObservationIgnored private var juzCache: [Int: [(surah: Surah, ayahs: ClosedRange<Int>)]] = [:]
     /// Neighbouring pages being laid out in the background.
     @ObservationIgnored private var preparing: Set<String> = []
@@ -233,6 +242,7 @@ final class ReaderModel {
     func goToPage(_ number: Int) {
         guard let layout else { return }
         followsPlayback = false
+        readingManzil = false
         let page = min(max(number, 1), layout.pageCount)
         show(page: page, in: layout)
         // Keep the selection on screen so the translation strip follows reading.
@@ -241,12 +251,15 @@ final class ReaderModel {
 
     /// Moves forward (+1, the next page) or back (−1) through the mushaf.
     func turnPage(_ direction: Int) {
+        // The Manzil scrolls; its pages are not turned.
+        guard !readingManzil else { return }
         goToPage(pageNumber + direction)
     }
 
     func goTo(_ ayah: AyahKey) {
         guard let layout, let store, store.contains(ayah), let page = try? store.firstPage(of: ayah, in: layout) else { return }
         followsPlayback = false
+        readingManzil = false
         show(page: page, in: layout)
         state.selectedAyah = ayah
     }
@@ -283,6 +296,10 @@ final class ReaderModel {
 
     /// Selects the next (+1) or previous (−1) ayah, turning the page when it starts elsewhere.
     func selectAdjacentAyah(_ direction: Int) {
+        if readingManzil {
+            if let next = Manzil.ayah(direction, from: state.selectedAyah) { select(next) }
+            return
+        }
         guard let store else { return }
         let next = direction > 0 ? store.ayah(after: state.selectedAyah) : store.ayah(before: state.selectedAyah)
         guard let next, let layout, let pages = try? store.pages(containing: next, in: layout), let first = pages.first else { return }
@@ -331,6 +348,36 @@ final class ReaderModel {
         return contents
     }
 
+    // MARK: The Manzil
+
+    /// Shows the Manzil in the main area, scrolling, with the passage holding the selection (or the first).
+    func showManzil() {
+        overlay = nil
+        readingManzil = true
+        if Manzil.passage(containing: state.selectedAyah) == nil { state.selectedAyah = Manzil.passages[0].lowerBound }
+    }
+
+    /// Back to the mushaf, at the selected ayah's page.
+    func closeManzil() {
+        readingManzil = false
+        if let layout, let page = try? store?.firstPage(of: state.selectedAyah, in: layout) { show(page: page, in: layout) }
+    }
+
+    /// A Manzil passage set in justified lines at `width`, in the current script's font (its Unicode text,
+    /// unmodified), at the same size as the mushaf page.
+    func manzilLayout(passage index: Int, width: Double) -> PageLayout? {
+        guard let layout, let font, let store, width > 40, Manzil.passages.indices.contains(index) else { return nil }
+        let key = "\(layout.id):\(index):\(Int(width))"
+        if let cached = manzilLayouts[key] { return cached }
+        let range = Manzil.passages[index]
+        let ayahs = (range.lowerBound.ayah ... range.upperBound.ayah).map { AyahKey(surah: range.lowerBound.surah, ayah: $0) }
+        let words = ayahs.map { (ayah: $0, words: (try? store.words(of: $0, in: layout)) ?? []) }
+        let result = PageLayoutEngine.flow(words, width: width, font: font, style: style(usingPageFonts: false))
+        if manzilLayouts.count > 60 { manzilLayouts.removeAll() }
+        manzilLayouts[key] = result
+        return result
+    }
+
     /// The surahs with ayahs in a juz, which downloading the juz fetches.
     func surahs(inJuz juz: Int) -> [Int] {
         juzContents(juz).map(\.surah.number)
@@ -348,6 +395,13 @@ final class ReaderModel {
     /// Where the player's outer skip buttons go from `ayah`. Forward (+1): the next surah or page.
     /// Back (−1): the start of the current surah or page, or the previous one when already at its start.
     func skipTarget(from ayah: AyahKey, direction: Int, unit: SkipUnit) -> AyahKey? {
+        // In the Manzil, the outer buttons move by passage.
+        if readingManzil || state.loopMode == .manzil {
+            guard let index = Manzil.passage(containing: ayah) else { return Manzil.passages[0].lowerBound }
+            if direction > 0 { return Manzil.passages.indices.contains(index + 1) ? Manzil.passages[index + 1].lowerBound : nil }
+            if ayah > Manzil.passages[index].lowerBound { return Manzil.passages[index].lowerBound }
+            return index > 0 ? Manzil.passages[index - 1].lowerBound : nil
+        }
         switch unit {
         case .surah:
             if direction > 0 { return ayah.surah < 114 ? AyahKey(surah: ayah.surah + 1, ayah: 1) : nil }

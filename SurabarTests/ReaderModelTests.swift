@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import MushafRendering
 import QuranStore
+import Recitation
 import Testing
 @testable import Surabar
 
@@ -151,6 +152,48 @@ struct ReaderModelTests {
         let previous = try #require(model.skipTarget(from: start, direction: -1, unit: .page))
         #expect(model.pageRange(of: previous)?.upperBound == library!.store.ayah(before: start))
         #expect(model.skipTarget(from: AyahKey(surah: 114, ayah: 6), direction: 1, unit: .page) == nil)
+    }
+
+    @Test func manzilPassagesAreSetInFullWithoutOverflow() throws {
+        let model = makeModel()
+        for script in ["uthmani", "indopak"] {
+            model.switchScript(to: script)
+            let layout = try #require(model.layout)
+            for size in ReaderSize.allCases {
+                for (index, range) in Manzil.passages.enumerated() {
+                    let result = try #require(model.manzilLayout(passage: index, width: ReaderLayout.pageWidth(size.width)))
+                    let ayahs = (range.lowerBound.ayah ... range.upperBound.ayah).map { AyahKey(surah: range.lowerBound.surah, ayah: $0) }
+                    let expected = try ayahs.flatMap { try library!.store.words(of: $0, in: layout) }
+                    #expect(result.items.map(\.item.text) == expected, "\(script) passage \(index + 1): every word once, in order")
+                    #expect(result.diagnostics.overflowingLines.isEmpty, "\(script) passage \(index + 1) at \(size)")
+                }
+            }
+        }
+    }
+
+    @Test func theManzilOpensInPlaceOfThePageAndClosesBackToIt() {
+        let model = makeModel()
+        model.goTo(AyahKey(surah: 36, ayah: 1))
+        model.showManzil()
+        #expect(model.readingManzil)
+        #expect(model.state.selectedAyah == AyahKey(surah: 1, ayah: 1), "outside the Manzil, it opens at its start")
+        model.turnPage(1)
+        #expect(model.readingManzil, "pages do not turn in the Manzil")
+        model.selectAdjacentAyah(1)
+        model.selectAdjacentAyah(1)
+        #expect(model.state.selectedAyah == AyahKey(surah: 1, ayah: 3))
+        // The skip buttons move by passage.
+        #expect(model.skipTarget(from: AyahKey(surah: 2, ayah: 256), direction: 1, unit: .surah) == AyahKey(surah: 2, ayah: 284))
+        #expect(model.skipTarget(from: AyahKey(surah: 2, ayah: 256), direction: -1, unit: .surah) == AyahKey(surah: 2, ayah: 255))
+        #expect(model.skipTarget(from: AyahKey(surah: 2, ayah: 255), direction: -1, unit: .surah) == AyahKey(surah: 2, ayah: 163))
+        #expect(model.skipTarget(from: AyahKey(surah: 114, ayah: 1), direction: 1, unit: .surah) == nil)
+        model.select(AyahKey(surah: 2, ayah: 255))
+        model.closeManzil()
+        #expect(!model.readingManzil)
+        #expect(model.isOnPage(AyahKey(surah: 2, ayah: 255)), "back to the mushaf at the selected ayah")
+        model.showManzil()
+        model.goTo(AyahKey(surah: 18, ayah: 1))
+        #expect(!model.readingManzil, "going somewhere in the mushaf leaves the Manzil")
     }
 
     @Test func stopPointsAndJuzSurahs() throws {

@@ -49,6 +49,9 @@ public struct PlaybackSequence: Sendable {
     /// A range that loops in place of the boundary.
     public var range: ClosedRange<AyahKey>?
     public var rangeRepeats: RepeatCount = .forever
+    /// Passages played in order, one after another (the Manzil); they take precedence over `range`
+    /// and the boundary. `rangeRepeats` repeats the whole playlist.
+    public var playlist: [ClosedRange<AyahKey>]?
     /// The last ayah before stopping, when no range is set.
     public var boundaryEnd: AyahKey
     /// Whether a basmalah step precedes ayah 1 of surahs other than 1 and 9. A reciter whose
@@ -93,6 +96,17 @@ public struct PlaybackSequence: Sendable {
         }
         if ayahRepeats.allows(step.repetition + 1) {
             return (PlaybackStep(kind: .ayah, ayah: step.ayah, repetition: step.repetition + 1, pausesBefore: true), rangePass)
+        }
+        if let playlist, let first = playlist.first {
+            guard let index = playlist.firstIndex(where: { $0.contains(step.ayah) }) else {
+                return (start(at: first.lowerBound), rangePass)
+            }
+            if step.ayah < playlist[index].upperBound, let next = ayah(after: step.ayah) {
+                return (start(at: next), rangePass)
+            }
+            if index + 1 < playlist.count { return (start(at: playlist[index + 1].lowerBound), rangePass) }
+            guard rangeRepeats.allows(rangePass + 1) else { return nil }
+            return (start(at: first.lowerBound, pausesBefore: true), rangePass + 1)
         }
         if let range {
             if step.ayah >= range.upperBound || step.ayah < range.lowerBound {

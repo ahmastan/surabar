@@ -11,6 +11,7 @@ struct SettingsView: View {
     let downloads: DownloadCenter?
     let palette: ReaderPalette
     @State private var launchAtLogin = LaunchAtLogin()
+    @State private var reminderProblem: String?
     /// Opens the colour panel and the backup file panels.
     let actions: ReaderActions
 
@@ -42,6 +43,7 @@ struct SettingsView: View {
                             TranslationsView(translations: translations, state: state, palette: palette)
                         } else {
                             reading
+                            manzil
                         }
                     case .player:
                         if state.showsDownloads, let downloads, let player {
@@ -178,6 +180,44 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var manzil: some View {
+        SettingsGroup(title: "Manzil reminders", palette: palette) {
+            reminderRow("Morning", time: $state.manzilMorningReminder, defaultMinutes: 6 * 60)
+            Divider()
+            reminderRow("Evening", time: $state.manzilEveningReminder, defaultMinutes: 20 * 60,
+                        footnote: reminderProblem ?? "A daily notification to read the Manzil; clicking it opens the Manzil.")
+        }
+    }
+
+    private func reminderRow(_ label: String, time: Binding<Int?>, defaultMinutes: Int, footnote: String? = nil) -> some View {
+        SettingsRow(label, palette: palette, footnote: footnote) {
+            HStack(spacing: 8) {
+                if time.wrappedValue != nil {
+                    DatePicker(label, selection: Binding(
+                        get: { Calendar.current.date(bySettingHour: (time.wrappedValue ?? 0) / 60, minute: (time.wrappedValue ?? 0) % 60,
+                                                     second: 0, of: Date()) ?? Date() },
+                        set: { date in
+                            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                            time.wrappedValue = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                            scheduleReminders()
+                        }), displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .fixedSize()
+                }
+                Toggle(label, isOn: Binding(get: { time.wrappedValue != nil }, set: { on in
+                    time.wrappedValue = on ? defaultMinutes : nil
+                    scheduleReminders()
+                }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+        }
+    }
+
+    private func scheduleReminders() {
+        let morning = state.manzilMorningReminder, evening = state.manzilEveningReminder
+        Task { reminderProblem = await ManzilReminders.shared.schedule(morning: morning, evening: evening) }
     }
 
     // MARK: Player

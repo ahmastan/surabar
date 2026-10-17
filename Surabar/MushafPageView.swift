@@ -3,21 +3,27 @@ import AppKit
 import MushafRendering
 import SwiftUI
 
+/// What a page view draws: a mushaf page, or one of the Manzil's passages set in justified lines.
+enum PageContent: Hashable {
+    case page(Int)
+    case manzil(Int)
+}
+
 /// SwiftUI wrapper for the Core Text page view.
 struct MushafPageView: NSViewRepresentable {
     let model: ReaderModel
-    /// The page this view draws; a page turn creates a new view, so the old page slides out unchanged.
-    let page: Int
+    /// What this view draws; a page turn creates a new view, so the old page slides out unchanged.
+    let content: PageContent
     let theme: ReaderTheme
     let accent: NSColor
 
     func makeNSView(context: Context) -> MushafPageNSView {
-        MushafPageNSView(model: model, page: page)
+        MushafPageNSView(model: model, content: content)
     }
 
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
-        view.update(page: page, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
+        view.update(content: content, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
                     accent: accent, pageFonts: model.usesPageFonts,
                     marks: (model.annotations?.highlights, model.annotations?.notes.count))
     }
@@ -32,11 +38,11 @@ final class MushafPageNSView: NSView {
     private var swipeDistance: CGFloat = 0
     private var swipeHandled = false
 
-    private var page: Int
+    private var content: PageContent
 
-    init(model: ReaderModel, page: Int) {
+    init(model: ReaderModel, content: PageContent) {
         self.model = model
-        self.page = page
+        self.content = content
         super.init(frame: .zero)
         wantsLayer = true
         setAccessibilityElement(true)
@@ -46,17 +52,20 @@ final class MushafPageNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool,
+    func update(content: PageContent, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool,
                 marks: (highlights: [AyahKey: HighlightEntry]?, notes: Int?)) {
         // A new selection or highlight cross-fades in rather than jumping.
         let marksChanged = drawnSelection != nil && (drawnSelection != selection || drawnHighlights != marks.highlights?.count)
         drawnSelection = selection
         drawnHighlights = marks.highlights?.count
-        self.page = page
+        self.content = content
         self.theme = theme
         self.accent = accent
         relayout()
-        setAccessibilityLabel("Mushaf page \(page)")
+        switch content {
+        case .page(let page): setAccessibilityLabel("Mushaf page \(page)")
+        case .manzil(let passage): setAccessibilityLabel("Manzil passage \(passage + 1)")
+        }
         if marksChanged, let layer {
             let fade = CATransition()
             fade.type = .fade
@@ -75,7 +84,10 @@ final class MushafPageNSView: NSView {
     }
 
     private func relayout() {
-        pageLayout = model.pageLayout(page: page, fitting: bounds.size)
+        pageLayout = switch content {
+        case .page(let page): model.pageLayout(page: page, fitting: bounds.size)
+        case .manzil(let passage): model.manzilLayout(passage: passage, width: bounds.width)
+        }
         needsDisplay = true
     }
 
@@ -109,8 +121,8 @@ final class MushafPageNSView: NSView {
                           decorations: decorations)
         let size = bounds.size, scale = window?.backingScaleFactor ?? 2
         // Once this page is on screen, get the pages either side ready.
-        DispatchQueue.main.async { [model, page] in
-            if model.pageNumber == page { model.prepareNeighbours(fitting: size, scale: scale) }
+        DispatchQueue.main.async { [model, content] in
+            if content == .page(model.pageNumber) { model.prepareNeighbours(fitting: size, scale: scale) }
         }
         context.restoreGState()
     }
@@ -228,7 +240,8 @@ final class MushafPageNSView: NSView {
     /// Two-finger horizontal swipes turn pages. Pages advance leftwards (right to left), so moving
     /// the content to the right shows the next page.
     override func scrollWheel(with event: NSEvent) {
-        guard event.hasPreciseScrollingDeltas, event.momentumPhase == [] else { return super.scrollWheel(with: event) }
+        // The Manzil's passages scroll in their scroll view; only mushaf pages turn.
+        guard case .page = content, event.hasPreciseScrollingDeltas, event.momentumPhase == [] else { return super.scrollWheel(with: event) }
         if event.phase == .began || event.phase == .mayBegin {
             swipeDistance = 0
             swipeHandled = false

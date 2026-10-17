@@ -146,3 +146,112 @@ struct LoopTests {
         #expect(player.sequence(at: AyahKey(surah: 3, ayah: 2)).range == AyahKey(surah: 3, ayah: 1) ... AyahKey(surah: 3, ayah: 9))
     }
 }
+
+struct ManzilRoutineTests {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago")!
+        return calendar
+    }()
+
+    private func date(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!
+    }
+
+    @Test func readTodayResetsAtLocalMidnight() {
+        var routine = ManzilRoutine()
+        routine.setRead(true, on: date(17, 23, 59), calendar: calendar)
+        #expect(routine.isRead(on: date(17, 6), calendar: calendar))
+        #expect(!routine.isRead(on: date(18, 0, 1), calendar: calendar), "a new day after midnight")
+        routine.setRead(false, on: date(17, 12), calendar: calendar)
+        #expect(!routine.isRead(on: date(17, 12), calendar: calendar), "can be unmarked")
+    }
+
+    @Test func streaksCountDaysInARowAndSurviveUntilTheDayEnds() {
+        var routine = ManzilRoutine()
+        for day in [13, 14, 15, 16] { routine.setRead(true, on: date(day, 7), calendar: calendar) }
+        #expect(routine.streak(on: date(16, 20), calendar: calendar) == 4)
+        #expect(routine.streak(on: date(17, 8), calendar: calendar) == 4, "today not yet read keeps yesterday's streak")
+        #expect(routine.streak(on: date(18, 8), calendar: calendar) == 0, "a missed day ends it")
+        routine.setRead(true, on: date(17, 21), calendar: calendar)
+        #expect(routine.streak(on: date(17, 22), calendar: calendar) == 5)
+        routine.setRead(false, on: date(15, 9), calendar: calendar)
+        #expect(routine.streak(on: date(17, 22), calendar: calendar) == 2, "a gap breaks the count")
+    }
+}
+
+@MainActor
+struct ManzilPlaybackTests {
+    private func makePlayer() -> (AppState, RecitationPlayer) {
+        let name = "SurabarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let state = AppState(defaults: defaults)
+        let counts = [7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52, 99, 128, 111, 110, 98, 135,
+                      112, 78, 118, 64, 77, 227, 93, 88, 69, 60, 34, 30, 73, 54, 45, 83, 182, 88, 75, 85, 54, 53, 89, 59, 37,
+                      35, 38, 29, 18, 45, 60, 49, 62, 55, 78, 96, 29, 22, 24, 13, 14, 11, 11, 18, 12, 12, 30, 52, 52, 44, 28,
+                      28, 20, 56, 40, 31, 50, 40, 46, 42, 29, 19, 36, 25, 22, 17, 19, 26, 30, 20, 15, 21, 11, 8, 8, 19, 5, 8,
+                      8, 11, 11, 8, 3, 9, 5, 4, 7, 3, 6, 3, 5, 4, 5, 6]
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("surabar-audio-\(UUID().uuidString)")
+        return (state, RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
+                                        timings: TimingsStore(ayahCounts: counts), audio: AudioCache(root: root)))
+    }
+
+    @Test func manzilModePlaysThePassagesWithItsRepeatCount() {
+        let (state, player) = makePlayer()
+        state.manzilRepeats = 3
+        state.loopMode = .manzil
+        let sequence = player.sequence(at: AyahKey(surah: 2, ayah: 255))
+        #expect(sequence.playlist == Manzil.passages)
+        #expect(sequence.rangeRepeats == .times(3))
+        player.cycleLoop()
+        #expect(state.loopMode == .manzil && state.manzilRepeats == 7, "the Loop changes how often, not whether")
+        state.loopMode = .off
+        player.setLoop(.manzil)
+        #expect(state.loopMode == .off, "the Manzil is started by playing it, not from the Loop")
+    }
+
+    @Test func inTheManzilTheLoopSetsHowManyTimesItIsRecited() {
+        let (state, player) = makePlayer()
+        player.readsManzil = { true }
+        #expect(player.inManzil && state.manzilRepeats == 1)
+        player.cycleLoop()
+        #expect(state.manzilRepeats == 3)
+        player.cycleLoop()
+        player.cycleLoop()
+        #expect(state.manzilRepeats == 0, "until stopped")
+        player.cycleLoop()
+        #expect(state.manzilRepeats == 1)
+        #expect(state.loopMode == .off, "the ordinary loop is untouched")
+    }
+
+    @Test func leavingTheManzilWhileItIsNotPlayingReturnsTheLoopToNormal() {
+        let (state, player) = makePlayer()
+        state.loopMode = .manzil
+        #expect(player.inManzil)
+        player.leftManzil()
+        #expect(state.loopMode == .off && !player.inManzil)
+        let sequence = player.sequence(at: AyahKey(surah: 27, ayah: 1))
+        #expect(sequence.playlist == nil, "An-Naml plays as An-Naml")
+        #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 27, ayah: 1), repetition: 1))?.step.ayah
+                == AyahKey(surah: 27, ayah: 2))
+    }
+
+    @Test func readingTheManzilMakesPreviousAndNextFollowIt() {
+        let (_, player) = makePlayer()
+        player.readsManzil = { true }
+        player.skip(to: AyahKey(surah: 3, ayah: 18))
+        player.stepAyah(1, from: AyahKey(surah: 3, ayah: 18))
+        #expect(player.ayah == AyahKey(surah: 3, ayah: 26), "the next Manzil ayah, not 3:19")
+    }
+
+    @Test func previousAndNextMoveThroughTheManzil() {
+        let (state, player) = makePlayer()
+        state.loopMode = .manzil
+        player.skip(to: AyahKey(surah: 2, ayah: 5))
+        player.stepAyah(1, from: AyahKey(surah: 1, ayah: 1))
+        #expect(player.ayah == AyahKey(surah: 2, ayah: 163))
+        player.stepAyah(-1, from: AyahKey(surah: 1, ayah: 1))
+        #expect(player.ayah == AyahKey(surah: 2, ayah: 5))
+    }
+}

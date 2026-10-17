@@ -53,6 +53,9 @@ struct AppStateTests {
         first.menuBarIcon = .moon
         first.playbackStop = .juz
         first.cacheBudget = 2_000_000_000
+        first.manzilRepeats = 7
+        first.manzilRoutine.setRead(true, on: Date())
+        first.manzilMorningReminder = 6 * 60 + 30
         first.isShowingSettings = true
 
         let relaunched = AppState(defaults: defaults)
@@ -73,6 +76,9 @@ struct AppStateTests {
         #expect(relaunched.menuBarIcon == .moon)
         #expect(relaunched.playbackStop == .juz)
         #expect(relaunched.cacheBudget == 2_000_000_000)
+        #expect(relaunched.manzilRepeats == 7)
+        #expect(relaunched.manzilRoutine.isRead(on: Date()))
+        #expect(relaunched.manzilMorningReminder == 390 && relaunched.manzilEveningReminder == nil)
         // The reader always reopens on the mushaf.
         #expect(!relaunched.isShowingSettings)
     }
@@ -103,6 +109,12 @@ struct AppStateTests {
         }
         #expect(MenuBarIcon.surabar.image?.size == NSSize(width: 19, height: 16), "drawn from the asset, not the fallback")
         #expect(MenuBarIcon.tile.image?.size == NSSize(width: 16, height: 16))
+    }
+
+    @Test func playingTheManzilDoesNotCarryOverARelaunch() {
+        let defaults = temporaryDefaults()
+        AppState(defaults: defaults).loopMode = .manzil
+        #expect(AppState(defaults: defaults).loopMode == .off)
     }
 
     @Test func customAccentHexRoundTrips() {

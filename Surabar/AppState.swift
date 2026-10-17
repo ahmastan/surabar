@@ -62,9 +62,10 @@ enum PlaybackStop: String, CaseIterable, Identifiable {
 }
 
 /// The Loop button's modes, cycled in this order. `unit` repeats the surah or page, following the skip unit.
-/// `range` (ayah X to Y) is set from the ayah menu; cycling from it turns the loop off.
+/// `range` (ayah X to Y) is set from the ayah menu, and `manzil` by Play Manzil; cycling from either
+/// turns the loop off.
 enum LoopMode: String, CaseIterable, Identifiable {
-    case off, ayah, unit, range
+    case off, ayah, unit, range, manzil
 
     var id: Self { self }
 
@@ -72,7 +73,7 @@ enum LoopMode: String, CaseIterable, Identifiable {
         switch self {
         case .off: .ayah
         case .ayah: .unit
-        case .unit, .range: .off
+        case .unit, .range, .manzil: .off
         }
     }
 
@@ -82,7 +83,46 @@ enum LoopMode: String, CaseIterable, Identifiable {
         case .ayah: "Ayah"
         case .unit: unit.title
         case .range: "Range"
+        case .manzil: "Manzil"
         }
+    }
+}
+
+/// When the Manzil was read, and the reminders to read it.
+struct ManzilRoutine: Equatable {
+    /// Days the Manzil was read, as local "yyyy-MM-dd", newest last; the last year is kept.
+    var days: [String] = []
+
+    static func day(_ date: Date, calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    func isRead(on date: Date, calendar: Calendar = .current) -> Bool {
+        days.contains(Self.day(date, calendar: calendar))
+    }
+
+    mutating func setRead(_ read: Bool, on date: Date, calendar: Calendar = .current) {
+        let day = Self.day(date, calendar: calendar)
+        days.removeAll { $0 == day }
+        if read { days.append(day) }
+        days.sort()
+        if days.count > 400 { days.removeFirst(days.count - 400) }
+    }
+
+    /// Days in a row up to today, or up to yesterday while today is not yet read.
+    func streak(on date: Date, calendar: Calendar = .current) -> Int {
+        let read = Set(days)
+        var day = date
+        if !read.contains(Self.day(day, calendar: calendar)) {
+            day = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+        }
+        var count = 0
+        while read.contains(Self.day(day, calendar: calendar)) {
+            count += 1
+            day = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+        }
+        return count
     }
 }
 
@@ -215,6 +255,10 @@ final class AppState {
         static let loopMode = "loopMode"
         static let playbackStop = "playbackStop"
         static let loopRange = "loopRange"
+        static let manzilRepeats = "manzilRepeatCount"
+        static let manzilDays = "manzilDays"
+        static let manzilMorning = "manzilMorningReminder"
+        static let manzilEvening = "manzilEveningReminder"
         static let cacheBudget = "audioCacheBudget"
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
@@ -284,6 +328,26 @@ final class AppState {
         didSet { defaults.set(loopRange?.stored, forKey: Keys.loopRange) }
     }
 
+    /// How many times Play Manzil recites the whole Manzil: 1, 3, or 7, or 0 until stopped.
+    var manzilRepeats: Int {
+        didSet { defaults.set(manzilRepeats, forKey: Keys.manzilRepeats) }
+    }
+
+    static let manzilRepeatCounts = [1, 3, 7, 0]
+
+    var manzilRoutine: ManzilRoutine {
+        didSet { defaults.set(manzilRoutine.days, forKey: Keys.manzilDays) }
+    }
+
+    /// Daily reminders, as minutes after midnight; nil when off.
+    var manzilMorningReminder: Int? {
+        didSet { defaults.set(manzilMorningReminder, forKey: Keys.manzilMorning) }
+    }
+
+    var manzilEveningReminder: Int? {
+        didSet { defaults.set(manzilEveningReminder, forKey: Keys.manzilEvening) }
+    }
+
     /// "Loop from Here" was chosen; "Loop to Here" on another ayah completes the range. Not saved.
     var loopRangeStart: AyahKey?
 
@@ -305,6 +369,7 @@ final class AppState {
     var showsDownloads = false
     /// The list of translations, shown within Settings › Reading.
     var showsTranslations = false
+
     /// The outcome of the last backup import or export, shown in Settings › General.
     var backupMessage: String?
     /// The measured height of each Settings tab's content; the reader resizes to fit it.
@@ -385,8 +450,14 @@ final class AppState {
         repeatCount = Self.repeatCounts.contains(storedCount) ? storedCount : 0
         let storedRange = defaults.string(forKey: Keys.loopRange).flatMap(ClosedRange<AyahKey>.init(stored:))
         let storedLoop = defaults.string(forKey: Keys.loopMode).flatMap(LoopMode.init(rawValue:)) ?? .off
-        loopMode = storedLoop == .range && storedRange == nil ? .off : storedLoop
+        // Play Manzil does not carry over a relaunch; a range loop does when its range is known.
+        loopMode = storedLoop == .manzil || (storedLoop == .range && storedRange == nil) ? .off : storedLoop
         loopRange = storedRange
+        let storedManzil = defaults.object(forKey: Keys.manzilRepeats) as? Int ?? 1
+        manzilRepeats = Self.manzilRepeatCounts.contains(storedManzil) ? storedManzil : 1
+        manzilRoutine = ManzilRoutine(days: defaults.stringArray(forKey: Keys.manzilDays) ?? [])
+        manzilMorningReminder = (defaults.object(forKey: Keys.manzilMorning) as? Int).map { min(max($0, 0), 1439) }
+        manzilEveningReminder = (defaults.object(forKey: Keys.manzilEvening) as? Int).map { min(max($0, 0), 1439) }
         playbackStop = defaults.string(forKey: Keys.playbackStop).flatMap(PlaybackStop.init(rawValue:)) ?? .surah
         let storedBudget = defaults.integer(forKey: Keys.cacheBudget)
         cacheBudget = Self.cacheBudgets.contains(storedBudget) ? storedBudget : 1_000_000_000

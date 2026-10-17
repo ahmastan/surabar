@@ -34,6 +34,11 @@ final class RecitationPlayer {
     @ObservationIgnored var onUserAction: (() -> Void)?
     /// The ayahs that start on the page where an ayah starts, in the current layout.
     @ObservationIgnored var pageRange: ((AyahKey) -> ClosedRange<AyahKey>?)?
+    /// Whether the reader is showing the Manzil, so playing starts the Manzil and the Loop sets how often
+    /// it repeats; set by the app.
+    @ObservationIgnored var readsManzil: () -> Bool = { false }
+    /// Called when Play Manzil has recited the whole Manzil (all its repeats).
+    @ObservationIgnored var onManzilFinished: (() -> Void)?
     /// Called after the position jumps within an ayah, so Now Playing shows it.
     @ObservationIgnored var onSeek: (() -> Void)?
     /// The last ayah of the page or juz an ayah is in, for "Stop playback at".
@@ -98,10 +103,23 @@ final class RecitationPlayer {
 
     // MARK: Controls
 
+    /// Plays from an ayah of the mushaf. Playing outside the Manzil ends the Manzil mode, whose playlist
+    /// would otherwise send playback back to its first passage after this ayah.
     func play(from ayah: AyahKey) {
+        if state.loopMode == .manzil { state.loopMode = .off }
+        begin(at: ayah)
+    }
+
+    private func begin(at ayah: AyahKey) {
         onUserAction?()
         anchorLoop(at: ayah)
         start(sequence(at: ayah).start(at: ayah), rangePass: firstPass(at: ayah))
+    }
+
+    /// The reader left the Manzil: unless the Manzil is still playing, the Loop and transport return to
+    /// the mushaf.
+    func leftManzil() {
+        if state.loopMode == .manzil && !isActive { state.loopMode = .off }
     }
 
     /// Resumes a paused ayah, or starts from `ayah` when nothing is paused there.
@@ -113,9 +131,12 @@ final class RecitationPlayer {
             onUserAction?()
             player.playImmediately(atRate: Float(state.speed))
         default:
-            play(from: ayah)
+            if readsManzil() { playManzil(from: ayah) } else { play(from: ayah) }
         }
     }
+
+    /// The Manzil is playing or being read: the transport and the Loop work on the Manzil.
+    var inManzil: Bool { state.loopMode == .manzil || readsManzil() }
 
     func pause() {
         pendingTask?.cancel()
@@ -126,6 +147,11 @@ final class RecitationPlayer {
     /// Moves to the next (+1) or previous (−1) ayah, skipping any remaining repeats.
     func stepAyah(_ direction: Int, from fallback: AyahKey) {
         let current = step?.ayah ?? fallback
+        // In the Manzil, previous and next move through its ayahs, across passages.
+        if inManzil {
+            guard let target = Manzil.ayah(direction, from: current) else { return }
+            return move(to: PlaybackStep(kind: .ayah, ayah: target, repetition: 1))
+        }
         let sequence = sequence(at: current)
         guard let target = direction > 0 ? sequence.ayah(after: current) : sequence.ayah(before: current) else { return }
         move(to: PlaybackStep(kind: .ayah, ayah: target, repetition: 1))
@@ -143,9 +169,21 @@ final class RecitationPlayer {
         if isActive { start(step, rangePass: firstPass(at: step.ayah)) } else { stop(at: step) }
     }
 
-    /// Off → repeat ayah → repeat surah or page → off.
+    /// Off → repeat ayah → repeat surah or page → off. In the Manzil: once → 3× → 7× → until stopped.
     func cycleLoop() {
+        if inManzil {
+            let counts = AppState.manzilRepeatCounts
+            state.manzilRepeats = counts[((counts.firstIndex(of: state.manzilRepeats) ?? 0) + 1) % counts.count]
+            return
+        }
         setLoop(state.loopMode.next)
+    }
+
+    /// Recites the Manzil from its first passage (or from `ayah`, when it is in the Manzil).
+    func playManzil(from ayah: AyahKey? = nil) {
+        state.loopMode = .manzil
+        loopRange = nil
+        begin(at: ayah.flatMap { Manzil.passage(containing: $0) != nil ? $0 : nil } ?? Manzil.passages[0].lowerBound)
     }
 
     /// Repeats the ayahs from one to another (in either order), starting at the first.
@@ -157,7 +195,7 @@ final class RecitationPlayer {
     }
 
     func setLoop(_ mode: LoopMode) {
-        guard mode != .range || state.loopRange != nil else { return }
+        guard mode != .range || state.loopRange != nil, mode != .manzil else { return }
         state.loopMode = mode
         loopRange = nil
         guard let ayah = step?.ayah else { return }
@@ -245,6 +283,9 @@ final class RecitationPlayer {
         case .range:
             sequence.range = state.loopRange
             sequence.rangeRepeats = count
+        case .manzil:
+            sequence.playlist = Manzil.passages
+            sequence.rangeRepeats = state.manzilRepeats == 0 ? .forever : .times(state.manzilRepeats)
         }
         return sequence
     }
@@ -344,6 +385,10 @@ final class RecitationPlayer {
         guard let next = sequence(at: current.step.ayah).step(after: current.step, rangePass: current.rangePass) else {
             player.pause()
             status = .paused
+            if state.loopMode == .manzil {
+                state.loopMode = .off
+                onManzilFinished?()
+            }
             return
         }
         // The next ayah follows on in the same recording: keep playing without touching the audio.

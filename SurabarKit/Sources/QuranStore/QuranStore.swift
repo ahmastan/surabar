@@ -263,6 +263,14 @@ public final class QuranStore: Sendable {
 
     // MARK: Ayahs
 
+    /// The ayah's source words in order, as the layout's word data has them.
+    public func words(of ayah: AyahKey, in layout: LayoutInfo) throws -> [String] {
+        try queue.read { db in
+            try String.fetchAll(db, sql: "SELECT text FROM words WHERE layout = ? AND surah = ? AND ayah = ? ORDER BY word",
+                                arguments: [layout.id, ayah.surah, ayah.ayah])
+        }
+    }
+
     /// The ayah's source words joined by single spaces, as the layout's word data has them.
     public func text(of ayah: AyahKey, in layout: LayoutInfo) throws -> String {
         try queue.read { db in

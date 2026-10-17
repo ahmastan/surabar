@@ -128,3 +128,36 @@ private func run(_ sequence: PlaybackSequence, from ayah: AyahKey, limit: Int = 
     #expect(reciter.displayName == "Abdul Basit Abdus-Samad (Mujawwad)")
     #expect(reciter.audioURL(surah: 2).absoluteString == "https://cdn.mp3quran.net/audio/abdulbasit-abdulsamad/r1/002.mp3")
 }
+
+@Test func theManzilHasEighteenPassagesOfRealAyahsInOrder() {
+    #expect(Manzil.passages.count == 18)
+    #expect(Manzil.ayahs.count == 80)
+    #expect(Manzil.ayahs == Manzil.ayahs.sorted(), "reading order")
+    for range in Manzil.passages {
+        #expect(range.lowerBound.surah == range.upperBound.surah)
+        #expect(range.upperBound.ayah <= counts[range.upperBound.surah - 1], "\(range)")
+    }
+    #expect(Manzil.passage(containing: key(2, 256)) == 3)
+    #expect(Manzil.passage(containing: key(2, 6)) == nil)
+    #expect(Manzil.ayah(1, from: key(2, 5)) == key(2, 163), "next crosses to the next passage")
+    #expect(Manzil.ayah(-1, from: key(2, 163)) == key(2, 5))
+    #expect(Manzil.ayah(1, from: key(114, 6)) == nil)
+}
+
+@Test func playlistsPlayPassagesInOrderWithBasmalahsAndRepeats() {
+    var sequence = PlaybackSequence(ayahCounts: counts, boundaryEnd: key(1, 7))
+    sequence.playlist = [key(1, 6) ... key(1, 7), key(2, 1) ... key(2, 2), key(2, 255) ... key(2, 255)]
+    sequence.rangeRepeats = .times(2)
+    #expect(run(sequence, from: key(1, 6)) == ["1:6", "1:7", "b2:1", "2:1", "2:2", "2:255",
+                                                "1:6", "1:7", "b2:1", "2:1", "2:2", "2:255"])
+    sequence.rangeRepeats = .times(1)
+    #expect(run(sequence, from: key(1, 6)).count == 6, "stops after one play")
+    // A repeat pauses before starting again.
+    sequence.rangeRepeats = .forever
+    let last = PlaybackStep(kind: .ayah, ayah: key(2, 255), repetition: 1)
+    #expect(sequence.step(after: last, rangePass: 1)?.step.pausesBefore == true)
+    // Ayah repeats still apply within a passage.
+    sequence.ayahRepeats = .times(2)
+    sequence.rangeRepeats = .times(1)
+    #expect(run(sequence, from: key(2, 255)) == ["2:255", "2:255#2"])
+}

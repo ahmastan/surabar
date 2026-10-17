@@ -38,8 +38,13 @@ struct ReaderView: View {
                     // The page is "paper" in the content layer; glass is only for controls (Apple's guidance).
                     ZStack(alignment: .top) {
                         VStack(spacing: 0) {
-                            page
-                            footer
+                            if model.readingManzil {
+                                ManzilReader(model: model, theme: state.theme, palette: palette)
+                                ManzilControls(model: model, palette: palette)
+                            } else {
+                                page
+                                footer
+                            }
                         }
                         .background(palette.page)
                         .overlay(alignment: .bottom) { backToPlaying }
@@ -63,6 +68,7 @@ struct ReaderView: View {
         .animation(reduceMotion ? nil : Motion.quick, value: showsBackToPlaying)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: state.isShowingSettings)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: state.viewMode)
+        .animation(Motion.standard(reduceMotion: reduceMotion), value: model.readingManzil)
         // The first time a layout with page fonts is shown, fetch them once.
         .task(id: model.state.script) { model.preparePageFonts() }
     }
@@ -81,7 +87,7 @@ struct ReaderView: View {
     /// The page, sliding in from the left when moving forward through the mushaf (right to left) and from
     /// the right when moving back; a quick fade with Reduce Motion.
     private var page: some View {
-        MushafPageView(model: model, page: model.pageNumber, theme: state.theme, accent: palette.accentColor)
+        MushafPageView(model: model, content: .page(model.pageNumber), theme: state.theme, accent: palette.accentColor)
             .id("\(model.state.script):\(model.pageNumber)")
             .transition(reduceMotion ? .opacity : .asymmetric(
                 insertion: .push(from: model.lastTurn > 0 ? .leading : .trailing),
@@ -112,9 +118,14 @@ struct ReaderView: View {
             Button { toggle(.surahPicker) } label: {
                 HStack(spacing: 6) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(model.currentSurah?.nameSimple ?? "Surabar").font(.headline).lineLimit(1)
-                        if let surah = model.currentSurah, let info = model.pageInfo {
-                            Text("Surah \(surah.number) · Juz \(info.juz)").font(.caption).foregroundStyle(palette.secondary)
+                        if model.readingManzil {
+                            Text("Manzil").font(.headline).lineLimit(1)
+                            Text("18 passages").font(.caption).foregroundStyle(palette.secondary)
+                        } else {
+                            Text(model.currentSurah?.nameSimple ?? "Surabar").font(.headline).lineLimit(1)
+                            if let surah = model.currentSurah, let info = model.pageInfo {
+                                Text("Surah \(surah.number) · Juz \(info.juz)").font(.caption).foregroundStyle(palette.secondary)
+                            }
                         }
                     }
                     Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(palette.secondary)

@@ -54,12 +54,16 @@ public struct MushafLine: Sendable {
     public let kind: LineKind
     public let isCentered: Bool
     public let items: [LineItem]
+    /// Set from the start (right) edge with natural spacing, as the last line of a paragraph is;
+    /// otherwise a line is justified or centred.
+    public let startsAtEdge: Bool
 
-    public init(number: Int, kind: LineKind, isCentered: Bool, items: [LineItem]) {
+    public init(number: Int, kind: LineKind, isCentered: Bool, items: [LineItem], startsAtEdge: Bool = false) {
         self.number = number
         self.kind = kind
         self.isCentered = isCentered
         self.items = items
+        self.startsAtEdge = startsAtEdge
     }
 }
 

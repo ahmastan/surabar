@@ -171,7 +171,7 @@ public enum PageLayoutEngine {
                 lineSpace = spaceWidth * scale
                 natural = widths + gaps * lineSpace
             }
-            let justify = !line.isCentered && shaped.count > 1
+            let justify = !line.isCentered && !line.startsAtEdge && shaped.count > 1
             // Marks such as pause signs can reach past a word's advance; pull a justified line in just
             // enough that the ink of its outer words stays on the page.
             var rightPull = 0.0, leftPull = 0.0
@@ -191,7 +191,7 @@ public enum PageLayoutEngine {
 
             let baselineY = top + Double(lineIndex) * lineHeight + lineHeight * ascent / (ascent + descent)
             // Right-to-left: the first item starts at the right edge of the text column.
-            var right = style.horizontalInset + columnWidth - (justify ? rightPull : (columnWidth - used) / 2)
+            var right = style.horizontalInset + columnWidth - (justify ? rightPull : line.startsAtEdge ? 0 : (columnWidth - used) / 2)
             var lineItems: [LaidOutItem] = []
             for (item, ctLine, itemWidth, drawn) in shaped {
                 let x = right - itemWidth
@@ -223,6 +223,35 @@ public enum PageLayoutEngine {
         }
         return PageLayout(page: page, size: pageRect.size, fontSize: fontSize, lineHeight: lineHeight,
                           items: items, diagnostics: diagnostics)
+    }
+
+    /// Text that is not a mushaf page (such as the Manzil's passages), set in justified lines like one: the
+    /// words fill each line with natural spacing, then the line is justified; the last line starts at the
+    /// right edge. `ayahs` are the words of each ayah, in order.
+    public static func flow(_ ayahs: [(ayah: AyahKey, words: [String])], width: Double, font: MushafFont,
+                            style: PageStyle) -> PageLayout {
+        let columnWidth = width - 2 * style.horizontalInset
+        let ctFont = font.sized(columnWidth * style.calibration)
+        let space = advance(of: " ", font: ctFont)
+        var lines: [[LineItem]] = [[]]
+        var used = 0.0
+        for (ayah, words) in ayahs {
+            for word in words {
+                let width = advance(of: word, font: ctFont)
+                let needed = lines[lines.count - 1].isEmpty ? width : used + space + width
+                if needed > columnWidth, !lines[lines.count - 1].isEmpty {
+                    lines.append([])
+                    used = width
+                } else {
+                    used = needed
+                }
+                lines[lines.count - 1].append(LineItem(text: word, ayah: ayah))
+            }
+        }
+        let mushafLines = lines.enumerated().map { index, items in
+            MushafLine(number: index + 1, kind: .ayah, isCentered: false, items: items, startsAtEdge: index == lines.count - 1)
+        }
+        return layout(MushafPage(number: 0, linesPerPage: mushafLines.count, lines: mushafLines), width: width, font: font, style: style)
     }
 
     /// The height of a page laid out at `width`. Every page of a layout has the same height.

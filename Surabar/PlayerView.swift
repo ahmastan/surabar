@@ -100,7 +100,7 @@ struct PlayerView: View {
                 transportButton("Next ayah (⌥←)", symbol: "forward.fill", size: 14) {
                     player.stepAyah(1, from: model.state.selectedAyah)
                 }
-                transportButton("Next \(unit.title.lowercased()) (⌘←)", symbol: "forward.end.fill", size: 12, disabled: forward == nil) {
+                transportButton(player.inManzil ? "Next passage (⌘←)" : "Next \(unit.title.lowercased()) (⌘←)", symbol: "forward.end.fill", size: 12, disabled: forward == nil) {
                     if let forward { player.skip(to: forward) }
                 }
             }
@@ -109,6 +109,10 @@ struct PlayerView: View {
 
     /// Back goes to the start of the current surah or page first, as a media player's Previous does.
     private func skipBackLabel(target: AyahKey?) -> String {
+        if player.inManzil {
+            let restarts = target != nil && target == Manzil.passage(containing: position).map { Manzil.passages[$0].lowerBound }
+            return (restarts ? "Start of passage" : "Previous passage") + " (⌘→)"
+        }
         let unit = model.state.skipUnit
         let restarts = switch unit {
         case .surah: target?.surah == position.surah
@@ -148,10 +152,10 @@ struct LoopControl: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("LOOP").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(palette.secondary)
                     HStack(spacing: 4) {
-                        Image(systemName: state.loopMode == .ayah ? "repeat.1" : state.loopMode == .range ? "arrow.left.and.right" : "repeat")
+                        Image(systemName: symbol)
                             .contentTransition(.symbolEffect(.replace))
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(state.loopMode == .off ? palette.secondary : palette.accent)
+                            .foregroundStyle(isOn ? palette.accent : palette.secondary)
                         Text(value).font(.caption.weight(.semibold)).lineLimit(1)
                     }
                 }
@@ -161,9 +165,11 @@ struct LoopControl: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Loop: \(value). Click to change (R)")
+            .help(player.inManzil ? "Recite the Manzil \(state.manzilRepeats == 0 ? "until stopped" : state.manzilRepeats == 1 ? "once" : "\(state.manzilRepeats) times"). Click to change (R)"
+                  : "Loop: \(value). Click to change (R)")
             .accessibilityLabel("Loop: \(value)")
-            .accessibilityHint("Cycles off, repeat ayah, and repeat \(state.skipUnit.title.lowercased())")
+            .accessibilityHint(player.inManzil ? "Cycles how many times the Manzil is recited"
+                               : "Cycles off, repeat ayah, and repeat \(state.skipUnit.title.lowercased())")
             Rectangle().fill(palette.secondary.opacity(0.35)).frame(width: 0.5).padding(.vertical, 6)
             Button { isOpen.toggle() } label: {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(palette.secondary)
@@ -191,21 +197,60 @@ struct LoopControl: View {
         }
     }
 
+    private var symbol: String {
+        if player.inManzil { return "repeat" }
+        return switch state.loopMode {
+        case .ayah: "repeat.1"
+        case .range: "arrow.left.and.right"
+        default: "repeat"
+        }
+    }
+
+    /// Lit when something repeats: a loop, or the Manzil more than once.
+    private var isOn: Bool {
+        player.inManzil ? state.manzilRepeats != 1 : state.loopMode != .off
+    }
+
+    private var pauseSection: OptionSection {
+        OptionSection(title: "Pause between repeats", items: (0 ... 5).map { seconds in
+            OptionItem(id: "pause\(seconds)", title: seconds == 0 ? "None" : "\(seconds) s",
+                       isSelected: state.repeatPause == Double(seconds)) { state.repeatPause = Double(seconds) }
+        })
+    }
+
     private var value: String {
+        if player.inManzil {
+            return state.manzilRepeats == 0 ? "Manzil ∞" : "Manzil ×\(state.manzilRepeats)"
+        }
         if let start = state.loopRangeStart { return "From \(start)…" }
         let title = state.loopMode == .range ? state.loopRange?.title ?? "Range" : state.loopMode.title(unit: state.skipUnit)
         guard state.loopMode != .off else { return title }
-        return state.repeatCount == 0 ? "\(title) ∞" : "\(title) ×\(state.repeatCount)"
+        let count = state.loopMode == .manzil ? state.manzilRepeats : state.repeatCount
+        return count == 0 ? "\(title) ∞" : "\(title) ×\(count)"
     }
 
     private var sections: [OptionSection] {
-        [
-            OptionSection(title: "Repeat", items: LoopMode.allCases.filter { $0 != .range || state.loopRange != nil }.map { mode in
+        // In the Manzil, the Loop only sets how many times the whole Manzil is recited.
+        if player.inManzil {
+            return [
+                OptionSection(title: "Recite the Manzil", items: AppState.manzilRepeatCounts.map { count in
+                    OptionItem(id: "manzil\(count)", title: count == 0 ? "Until stopped" : count == 1 ? "Once" : "\(count) times",
+                               isSelected: state.manzilRepeats == count) { state.manzilRepeats = count }
+                }),
+                pauseSection,
+            ]
+        }
+        return [
+            // The Manzil is started from its booklet; it is listed only while it plays.
+            OptionSection(title: "Repeat", items: LoopMode.allCases.filter {
+                ($0 != .range || state.loopRange != nil) && ($0 != .manzil || state.loopMode == .manzil)
+            }.map { mode in
                 let title = switch mode {
                 case .off: "Off"
                 case .ayah: "Each ayah"
                 case .unit: "The whole \(state.skipUnit.title.lowercased())"
                 case .range: "Ayahs \(state.loopRange?.title ?? "")"
+                case .manzil: "The Manzil"
                 }
                 return OptionItem(id: mode.rawValue, title: title, isSelected: state.loopMode == mode) { player.setLoop(mode) }
             }),
@@ -213,10 +258,7 @@ struct LoopControl: View {
                 OptionItem(id: "count\(count)", title: count == 0 ? "Until stopped" : "\(count) times",
                            isSelected: state.repeatCount == count) { state.repeatCount = count }
             }),
-            OptionSection(title: "Pause between repeats", items: (0 ... 5).map { seconds in
-                OptionItem(id: "pause\(seconds)", title: seconds == 0 ? "None" : "\(seconds) s",
-                           isSelected: state.repeatPause == Double(seconds)) { state.repeatPause = Double(seconds) }
-            }),
+            pauseSection,
         ]
     }
 }

@@ -20,7 +20,7 @@ struct SurahPicker: View {
     #endif
 
     enum Mode: String, CaseIterable {
-        case surahs = "Surahs", juz = "Juz"
+        case surahs = "Surahs", juz = "Juz", manzil = "Manzil"
     }
 
     var body: some View {
@@ -30,6 +30,32 @@ struct SurahPicker: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            list
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            #if DEBUG
+            if let debugExpandedJuz {
+                mode = .juz
+                expanded = debugExpandedJuz
+            }
+            #endif
+        }
+        .onChange(of: mode) { previous, mode in
+            query = ""
+            // Choosing the Manzil shows it in the main area, scrolling, in place of the page (in "Player only",
+            // the player switches to the Manzil).
+            if mode == .manzil {
+                self.mode = previous
+                model.showManzil()
+            }
+        }
+    }
+
+    /// The surah or juz list, with its search field.
+    private var list: some View {
+        VStack(spacing: 8) {
             // Not focused on opening: the first focus of a text field starts macOS's text input services
             // (predictive text), a moment of heavy work that made recitation crackle.
             TextField(mode == .surahs ? "Search surahs" : "Juz number", text: $query)
@@ -61,20 +87,10 @@ struct SurahPicker: View {
                 .onChange(of: mode) { scrollToCurrent(proxy) }
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            #if DEBUG
-            if let debugExpandedJuz {
-                mode = .juz
-                expanded = debugExpandedJuz
-            }
-            #endif
-        }
-        .onChange(of: mode) { query = "" }
     }
 
     private func scrollToCurrent(_ proxy: ScrollViewProxy) {
+        guard mode != .manzil else { return }
         let target = mode == .surahs ? "surah-\(model.currentSurah?.number ?? 1)" : "juz-\(model.pageInfo?.juz ?? 1)"
         // After the new list has laid out.
         DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center) }

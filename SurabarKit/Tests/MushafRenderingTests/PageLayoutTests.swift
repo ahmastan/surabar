@@ -154,3 +154,24 @@ private func layout(_ lines: [MushafLine], width: Double = ReaderSize.medium.wid
     #expect(result.items.map(\.item.text) == Array(words.prefix(3)), "the source text stays the item's identity")
     #expect(result.diagnostics.missingGlyphs.isEmpty)
 }
+
+@Test func flowedTextFillsJustifiedLinesAndEndsAtTheRightEdge() {
+    // Five "ayahs" of the six sample words, at a width that holds a few words per line.
+    let ayahs = (1 ... 5).map { (ayah: AyahKey(surah: 1, ayah: $0), words: words) }
+    let style = PageStyle(calibration: 0.06)
+    let result = PageLayoutEngine.flow(ayahs, width: 320, font: arabic, style: style)
+    let lines = Dictionary(grouping: result.items, by: \.lineIndex).sorted { $0.key < $1.key }.map(\.value)
+    #expect(lines.count > 2, "the words wrap onto several lines")
+    #expect(result.items.count == 30, "every word is set once, in order")
+    #expect(result.items.map(\.item.text) == Array(repeating: words, count: 5).flatMap { $0 })
+    #expect(result.diagnostics.overflowingLines.isEmpty)
+    let right = 320 - style.horizontalInset, left = style.horizontalInset
+    for line in lines.dropLast() {
+        #expect(abs(line.first!.typographicRect.maxX - right) < 0.5, "justified lines start at the right edge")
+        #expect(abs(line.last!.typographicRect.minX - left) < 0.5, "and end at the left edge")
+    }
+    let last = lines.last!
+    #expect(abs(last.first!.typographicRect.maxX - right) < 0.5, "the last line starts at the right edge")
+    #expect(last.last!.typographicRect.minX > left + 1 || last.count == 1, "with natural spacing, not stretched")
+    #expect(result.size.height > 0 && result.rects(for: AyahKey(surah: 1, ayah: 3)).count >= 1)
+}

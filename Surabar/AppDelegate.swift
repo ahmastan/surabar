@@ -38,12 +38,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             player.onAyahChange = { [weak self] ayah in self?.model.followPlayback(to: ayah) }
             player.onUserAction = { [weak self] in self?.model.followsPlayback = true }
             player.pageRange = { [weak self] ayah in self?.model.pageRange(of: ayah) }
-            model.playAyah = { [weak player] ayah in player?.play(from: ayah) }
+            model.playAyah = { [weak self, weak player] ayah in
+                if self?.model.readingManzil == true { player?.playManzil(from: ayah) } else { player?.play(from: ayah) }
+            }
+            player.readsManzil = { [weak self] in self?.model.readingManzil ?? false }
+            model.leftManzil = { [weak player] in player?.leftManzil() }
             model.loopAyahs = { [weak player] range in player?.loop(range) }
+            // A full recitation of the Manzil counts as reading it today.
+            player.onManzilFinished = { [weak self] in self?.state.manzilRoutine.setRead(true, on: Date()) }
             self.player = player
         }
         reader = ReaderController(state: state, model: model, player: player, downloads: downloads)
         statusItem = StatusItemController(state: state, reader: reader)
+        ManzilReminders.shared.onOpen = { [weak self] in
+            guard let self, let button = statusItem.button else { return }
+            state.isShowingSettings = false
+            model.showManzil()
+            reader.open(from: button)
+        }
         KeyboardShortcuts.onKeyUp(for: .toggleReader) { [weak self] in
             #if DEBUG
             print("Surabar: shortcut pressed; app active: \(NSApp.isActive), reader open: \(self?.reader.isPopoverShown ?? false)")
