@@ -1,3 +1,4 @@
+import Annotations
 import AppKit
 import MushafRendering
 import SwiftUI
@@ -213,7 +214,9 @@ final class ReaderController: NSObject {
         let actions = ReaderActions(
             detach: { [weak self] in self?.detach() },
             attach: { [weak self] in self?.attach() },
-            editCustomAccent: { [weak self] in self?.editCustomAccent() }
+            editCustomAccent: { [weak self] in self?.editCustomAccent() },
+            exportAnnotations: { [weak self] in self?.exportAnnotations() },
+            importAnnotations: { [weak self] in self?.importAnnotations() }
         )
         let host = NSHostingController(rootView: ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions))
         // The popover and window set the size; the SwiftUI content fills it.
@@ -318,5 +321,56 @@ extension ReaderController {
         NSColorPanel.shared.setTarget(nil)
         NSColorPanel.shared.setAction(nil)
         popover.behavior = .transient
+    }
+}
+
+// MARK: Annotation backups
+
+extension ReaderController {
+    /// Runs a file panel; the popover stays open meanwhile (a transient one closes when the panel appears).
+    private func withFilePanel(_ body: () -> Void) {
+        popover.behavior = .applicationDefined
+        body()
+        popover.behavior = .transient
+    }
+
+    func exportAnnotations() {
+        guard let annotations = model.annotations else { return }
+        withFilePanel {
+            let panel = NSSavePanel()
+            panel.title = "Export Bookmarks, Highlights, and Notes"
+            panel.nameFieldStringValue = "Surabar Annotations \(Date().formatted(.iso8601.year().month().day())).json"
+            panel.allowedContentTypes = [.json]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try annotations.backup.encoded().write(to: url, options: .atomic)
+                state.backupMessage = "Exported to \(url.lastPathComponent)."
+            } catch {
+                state.backupMessage = "Couldn't export: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func importAnnotations() {
+        guard let annotations = model.annotations, let store = model.store else { return }
+        withFilePanel {
+            let panel = NSOpenPanel()
+            panel.title = "Import Bookmarks, Highlights, and Notes"
+            panel.allowedContentTypes = [.json]
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                let backup = try AnnotationBackup.decode(Data(contentsOf: url), ayahCounts: store.surahs.map(\.ayahCount))
+                let result = try annotations.importBackup(backup)
+                state.backupMessage = result.applied == 0 && result.skipped == 0
+                    ? "The backup was empty."
+                    : "Imported \(result.applied) \(result.applied == 1 ? "entry" : "entries")"
+                        + (result.skipped > 0 ? "; kept \(result.skipped) newer \(result.skipped == 1 ? "one" : "ones") already here." : ".")
+            } catch let error as AnnotationBackup.ValidationError {
+                state.backupMessage = "\(error.description). Nothing was changed."
+            } catch {
+                state.backupMessage = "Couldn't import: \(error.localizedDescription). Nothing was changed."
+            }
+        }
     }
 }

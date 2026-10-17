@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "MushafRendering", targets: ["MushafRendering"]),
         .library(name: "QuranStore", targets: ["QuranStore"]),
         .library(name: "Recitation", targets: ["Recitation"]),
+        .library(name: "Annotations", targets: ["Annotations"]),
         .executable(name: "surabar-render", targets: ["SurabarRender"]),
     ],
     dependencies: [
@@ -20,10 +21,13 @@ let package = Package(
         .target(name: "QuranStore", dependencies: ["MushafRendering", .product(name: "GRDB", package: "GRDB.swift")]),
         // Reciters and the playback order (repeats, loops, boundaries); no audio code.
         .target(name: "Recitation", dependencies: ["MushafRendering"]),
+        // Bookmarks, highlights, and notes: the backup format, its validation, and merging; no storage code.
+        .target(name: "Annotations", dependencies: ["MushafRendering"]),
         // Phase 0 harness: renders snapshots and checks every page of a layout for defects.
         .executableTarget(name: "SurabarRender", dependencies: ["MushafRendering", "QuranStore"]),
         .testTarget(name: "MushafRenderingTests", dependencies: ["MushafRendering"]),
         .testTarget(name: "RecitationTests", dependencies: ["Recitation"]),
+        .testTarget(name: "AnnotationsTests", dependencies: ["Annotations"]),
         .testTarget(name: "QuranStoreTests", dependencies: ["QuranStore", .product(name: "GRDB", package: "GRDB.swift")]),
     ]
 )

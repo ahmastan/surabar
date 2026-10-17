@@ -90,6 +90,27 @@ struct LoopTests {
         #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 1, ayah: 7), repetition: 1), rangePass: 2) == nil)
     }
 
+    @Test func rangeLoopsRepeatTheChosenAyahs() {
+        let (state, player) = makePlayer()
+        state.repeatCount = 3
+        player.loop(AyahKey(surah: 2, ayah: 286) ... AyahKey(surah: 3, ayah: 2))
+        #expect(state.loopMode == .range)
+        let sequence = player.sequence(at: AyahKey(surah: 2, ayah: 286))
+        #expect(sequence.range == AyahKey(surah: 2, ayah: 286) ... AyahKey(surah: 3, ayah: 2))
+        #expect(sequence.rangeRepeats == .times(3))
+        // Across the surah boundary, with the basmalah before 3:1.
+        let next = sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 2, ayah: 286), repetition: 1), rangePass: 1)
+        #expect(next?.step.kind == .basmalah && next?.step.ayah == AyahKey(surah: 3, ayah: 1))
+        let loopBack = sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 3, ayah: 2), repetition: 1), rangePass: 1)
+        #expect(loopBack?.step.ayah == AyahKey(surah: 2, ayah: 286) && loopBack?.rangePass == 2)
+        // The range is remembered; cycling turns the loop off.
+        #expect(AppState(defaults: state.debugDefaults).loopRange == AyahKey(surah: 2, ayah: 286) ... AyahKey(surah: 3, ayah: 2))
+        player.cycleLoop()
+        #expect(state.loopMode == .off)
+        player.setLoop(.range)
+        #expect(state.loopMode == .range, "the remembered range can be chosen again from the Loop menu")
+    }
+
     @Test func playbackStopsAtTheChosenUnit() {
         let (state, player) = makePlayer()
         let ayah = AyahKey(surah: 2, ayah: 255)

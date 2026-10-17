@@ -147,7 +147,16 @@ final class RecitationPlayer {
         setLoop(state.loopMode.next)
     }
 
+    /// Repeats the ayahs from one to another (in either order), starting at the first.
+    func loop(_ range: ClosedRange<AyahKey>) {
+        state.loopRange = range
+        state.loopMode = .range
+        loopRange = nil
+        play(from: range.lowerBound)
+    }
+
     func setLoop(_ mode: LoopMode) {
+        guard mode != .range || state.loopRange != nil else { return }
         state.loopMode = mode
         loopRange = nil
         guard let ayah = step?.ayah else { return }
@@ -159,7 +168,8 @@ final class RecitationPlayer {
 
     /// Repeating a surah or page counts full passes: a pass started part-way through is pass 0.
     private func firstPass(at ayah: AyahKey) -> Int {
-        guard state.loopMode == .unit, let loopRange, ayah != loopRange.lowerBound else { return 1 }
+        let range = state.loopMode == .range ? state.loopRange : state.loopMode == .unit ? loopRange : nil
+        guard let range, ayah != range.lowerBound else { return 1 }
         return 0
     }
 
@@ -225,6 +235,9 @@ final class RecitationPlayer {
             sequence.ayahRepeats = count
         case .unit:
             sequence.range = loopRange ?? unitRange(of: ayah)
+            sequence.rangeRepeats = count
+        case .range:
+            sequence.range = state.loopRange
             sequence.rangeRepeats = count
         }
         return sequence

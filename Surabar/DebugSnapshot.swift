@@ -22,6 +22,7 @@ enum DebugSnapshot {
         let state = AppState(defaults: UserDefaults(suiteName: suite)!)
         let model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
         var overlay: ReaderModel.Overlay?
+        var expandedJuz: Set<Int>?
         for pair in (environment["SURABAR_SNAPSHOT_STATE"] ?? "").split(separator: " ") {
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
@@ -32,7 +33,27 @@ enum DebugSnapshot {
             case "size": ReaderSize(rawValue: parts[1]).map { state.size = $0 }
             case "theme": ReaderTheme(rawValue: parts[1]).map { state.theme = $0 }
             case "translation": state.showTranslation = parts[1] != "off"
-            case "overlay": overlay = parts[1] == "jump" ? .jump : .surahPicker
+            case "overlay":
+                overlay = switch parts[1] {
+                case "jump": .jump
+                case "annotations": .annotations
+                case "juz": .surahPicker
+                case "note": .note(model.state.selectedAyah)
+                default: .surahPicker
+                }
+            case "annotations":
+                // Sample annotations in memory: a bookmark, highlights, and a note around 2:255.
+                let store = try? AnnotationStore(inMemory: true)
+                store?.setBookmark(AyahKey(surah: 2, ayah: 255), label: "Ayat al-Kursi")
+                store?.setHighlight(AyahKey(surah: 2, ayah: 255), .yellow)
+                store?.setHighlight(AyahKey(surah: 2, ayah: 256), .green)
+                store?.setNote(AyahKey(surah: 2, ayah: 257), "Light and darkness; memorise with 2:255.")
+                store?.setNote(AyahKey(surah: 2, ayah: 255), "Recite after every prayer.")
+                model.annotations = store
+            case "range":
+                state.loopRange = ClosedRange<AyahKey>(stored: parts[1])
+                state.loopMode = .range
+            case "expand": expandedJuz = Set(parts[1].split(separator: ",").compactMap { Int($0) })
             case "loop": LoopMode(rawValue: parts[1]).map { state.loopMode = $0 }
             case "count": Int(parts[1]).map { state.repeatCount = $0 }
             case "skip": SkipUnit(rawValue: parts[1]).map { state.skipUnit = $0 }
@@ -59,7 +80,7 @@ enum DebugSnapshot {
         let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
                                             showTranslation: state.showTranslation, availableHeight: 2000,
                                             mode: state.viewMode)
-        let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {})
+        let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {}, exportAnnotations: {}, importAnnotations: {})
         let player = model.store.map { store in
             RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled(),
                              timings: TimingsStore(ayahCounts: store.surahs.map(\.ayahCount)), audio: AudioCache())
@@ -67,7 +88,9 @@ enum DebugSnapshot {
         let downloads = player.map { _ in
             DownloadCenter(audio: AudioCache(), timings: TimingsStore(ayahCounts: model.store!.surahs.map(\.ayahCount)), state: state)
         }
-        let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions))
+        var reader = ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions)
+        reader.debugExpandedJuz = expandedJuz
+        let view = NSHostingView(rootView: reader)
         view.frame = CGRect(origin: .zero, size: size)
         switch state.theme {
         case .dark: view.appearance = NSAppearance(named: .darkAqua)

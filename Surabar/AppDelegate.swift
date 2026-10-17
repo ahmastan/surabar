@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DebugSnapshot.runIfRequested() || DebugPlaybackProbe.runIfRequested() { return }
         #endif
         model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
+        model.annotations = try? AnnotationStore()
         if let store = model.store {
             let counts = store.surahs.map(\.ayahCount)
             let timings = TimingsStore(ayahCounts: counts)
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             player.onUserAction = { [weak self] in self?.model.followsPlayback = true }
             player.pageRange = { [weak self] ayah in self?.model.pageRange(of: ayah) }
             model.playAyah = { [weak player] ayah in player?.play(from: ayah) }
+            model.loopAyahs = { [weak player] range in player?.loop(range) }
             self.player = player
         }
         reader = ReaderController(state: state, model: model, player: player, downloads: downloads)
@@ -50,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Reader keyboard shortcuts. Arrows follow the mushaf's right-to-left order: ← is the next page,
     /// Option-← the next ayah (the recited one while playing), Command-← the next surah or page for
-    /// recitation. R cycles the Loop. 1, 2, 3 choose a size; ⌘F or ⌘L jumps; ⌘C copies the selected ayah;
+    /// recitation. R cycles the Loop; B bookmarks the selected ayah. 1, 2, 3 choose a size; ⌘F or ⌘L jumps; ⌘C copies the selected ayah;
     /// Escape closes Settings or an open panel, then the reader. Space plays or pauses. B arrives with bookmarks.
     /// While Settings are shown, other keys go to the settings controls.
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -101,6 +103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 model.selectAdjacentAyah(direction)
             }
+        case (11, []):  // B
+            guard let annotations = model.annotations else { return false }
+            annotations.toggleBookmark(state.selectedAyah)
         case (15, []):  // R
             guard let player else { return false }
             player.cycleLoop()

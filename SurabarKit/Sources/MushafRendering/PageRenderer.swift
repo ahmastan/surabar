@@ -19,10 +19,48 @@ public struct PageColors: Sendable {
                                          highlight: CGColor(red: 1, green: 0.85, blue: 0.2, alpha: 0.35))
 }
 
+/// Marks drawn with the page: colour fills behind ayahs (highlights) and small dots (note markers).
+public struct PageDecorations: Sendable {
+    public struct Fill: @unchecked Sendable {
+        public let rects: [CGRect]
+        public let color: CGColor
+
+        public init(rects: [CGRect], color: CGColor) {
+            self.rects = rects
+            self.color = color
+        }
+    }
+
+    public struct Dot: @unchecked Sendable {
+        /// In page coordinates (top-left origin).
+        public let center: CGPoint
+        public let color: CGColor
+
+        public init(center: CGPoint, color: CGColor) {
+            self.center = center
+            self.color = color
+        }
+    }
+
+    public var fills: [Fill]
+    /// Drawn as rounded outlines, e.g. the selection over a highlighted ayah.
+    public var outlines: [Fill]
+    public var dots: [Dot]
+
+    public init(fills: [Fill] = [], outlines: [Fill] = [], dots: [Dot] = []) {
+        self.fills = fills
+        self.outlines = outlines
+        self.dots = dots
+    }
+
+    public static let none = PageDecorations()
+}
+
 public enum PageRenderer {
-    /// Draws into a context whose origin is bottom-left (the Core Graphics default).
+    /// Draws into a context whose origin is bottom-left (the Core Graphics default). Decoration fills
+    /// go under the selection (`highlighted`), and both under the text; dots go on top.
     public static func draw(_ layout: PageLayout, in context: CGContext, colors: PageColors = .light,
-                            highlighted: [CGRect] = [], outlineItems: Bool = false) {
+                            highlighted: [CGRect] = [], decorations: PageDecorations = .none, outlineItems: Bool = false) {
         let height = layout.size.height
         func flipped(_ rect: CGRect) -> CGRect {
             CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
@@ -31,11 +69,24 @@ public enum PageRenderer {
         defer { context.restoreGState() }
         context.setFillColor(colors.background)
         context.fill(CGRect(origin: .zero, size: layout.size))
-        context.setFillColor(colors.highlight)
-        for rect in highlighted {
-            let box = flipped(rect).insetBy(dx: -2, dy: 0)
-            context.addPath(CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil))
-            context.fillPath()
+        func fill(_ rects: [CGRect], _ color: CGColor) {
+            context.setFillColor(color)
+            for rect in rects {
+                let box = flipped(rect).insetBy(dx: -2, dy: 0)
+                context.addPath(CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil))
+                context.fillPath()
+            }
+        }
+        for decoration in decorations.fills { fill(decoration.rects, decoration.color) }
+        fill(highlighted, colors.highlight)
+        context.setLineWidth(1.5)
+        for outline in decorations.outlines {
+            context.setStrokeColor(outline.color)
+            for rect in outline.rects {
+                let box = flipped(rect).insetBy(dx: -1.25, dy: 0.75)
+                context.addPath(CGPath(roundedRect: box, cornerWidth: 4, cornerHeight: 4, transform: nil))
+                context.strokePath()
+            }
         }
         if outlineItems {
             context.setLineWidth(0.5)
@@ -51,6 +102,10 @@ public enum PageRenderer {
         for item in layout.items {
             context.textPosition = CGPoint(x: item.baseline.x, y: height - item.baseline.y)
             CTLineDraw(item.line, context)
+        }
+        for dot in decorations.dots {
+            context.setFillColor(dot.color)
+            context.fillEllipse(in: CGRect(x: dot.center.x - 2.5, y: height - dot.center.y - 2.5, width: 5, height: 5))
         }
     }
 

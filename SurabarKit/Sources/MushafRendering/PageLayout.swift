@@ -109,6 +109,12 @@ public struct PageLayout: @unchecked Sendable {
     }
 
     /// Visible fragments of an ayah on this page, one rectangle per line.
+    /// Where a note marker goes: just above the ayah's last item on the page (its number, when it ends here).
+    public func markerPoint(for ayah: AyahKey) -> CGPoint? {
+        guard let last = items.last(where: { $0.item.ayah == ayah }) else { return nil }
+        return CGPoint(x: last.typographicRect.midX, y: last.typographicRect.minY + 3)
+    }
+
     public func rects(for ayah: AyahKey) -> [CGRect] {
         Dictionary(grouping: items.filter { $0.item.ayah == ayah }, by: \.lineIndex)
             .sorted { $0.key < $1.key }

@@ -156,7 +156,23 @@ struct ReaderModelTests {
         #expect(model.unitEnd(of: ayah, .juz) == AyahKey(surah: 3, ayah: 92), "2:255 is in juz 3")
         #expect(model.unitEnd(of: ayah, .surah) == nil)
         #expect(model.surahs(inJuz: 1) == [1, 2])
+        let juz1 = model.juzContents(1).map { "\($0.surah.nameSimple) \($0.ayahs)" }
+        #expect(juz1 == ["Al-Fatihah 1...7", "Al-Baqarah 1...141"])
+        #expect(model.juzContents(2).map(\.ayahs) == [142 ... 252])
+        let juz30 = model.juzContents(30)
+        #expect(juz30.first?.surah.number == 78 && juz30.last?.surah.number == 114 && juz30.count == 37)
         #expect(model.surahs(inJuz: 30) == Array(78 ... 114))
+    }
+
+    @Test func loopFromHereThenToHereLoopsTheRangeInOrder() {
+        let model = makeModel()
+        var looped: ClosedRange<AyahKey>?
+        model.loopAyahs = { looped = $0 }
+        model.loopFromHere(AyahKey(surah: 2, ayah: 257))
+        #expect(model.state.loopRangeStart == AyahKey(surah: 2, ayah: 257))
+        model.loopToHere(AyahKey(surah: 2, ayah: 255))
+        #expect(looped == AyahKey(surah: 2, ayah: 255) ... AyahKey(surah: 2, ayah: 257))
+        #expect(model.state.loopRangeStart == nil)
     }
 
     @Test func browsingStopsFollowingPlaybackUntilAskedBack() {

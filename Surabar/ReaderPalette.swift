@@ -1,3 +1,4 @@
+import Annotations
 import AppKit
 import SwiftUI
 
@@ -51,5 +52,30 @@ struct ReaderPalette {
         case .graphite: .systemGray
         case .custom: NSColor(srgbRed: custom.red, green: custom.green, blue: custom.blue, alpha: 1)
         }
+    }
+}
+
+extension HighlightColor {
+    var title: String { rawValue.capitalized }
+
+    /// A highlighter tint with lighter (light themes, Sepia) and deeper (dark) variants.
+    var color: NSColor {
+        let (red, green, blue): (CGFloat, CGFloat, CGFloat) = switch self {
+        case .yellow: (1.0, 0.84, 0.2)
+        case .green: (0.42, 0.82, 0.45)
+        case .blue: (0.38, 0.64, 1.0)
+        case .pink: (1.0, 0.48, 0.68)
+        case .orange: (1.0, 0.62, 0.28)
+        }
+        return NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(srgbRed: red * (dark ? 0.85 : 1), green: green * (dark ? 0.85 : 1), blue: blue * (dark ? 0.85 : 1),
+                           alpha: dark ? 0.32 : 0.42)
+        }
+    }
+
+    /// The colour at full strength, for swatches and list markers.
+    var swatch: NSColor {
+        color.withAlphaComponent(1)
     }
 }

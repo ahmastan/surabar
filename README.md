@@ -4,9 +4,9 @@ An open-source macOS menu bar Quran reader, being built around authentic mushaf 
 
 ## Development status
 
-Surabar is in early development. The repository contains the menu bar app with an offline mushaf reader (Uthmani and IndoPak), source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
+Surabar is in early development. The menu bar app has an offline mushaf reader (Uthmani and IndoPak pages), recitation from continuous surah recordings that follows along ayah by ayah, loops (ayah, surah, page, or a range of ayahs), recitations saved for offline listening and downloadable by surah or juz, media-key and Now Playing support, and bookmarks, highlights, and notes with JSON backup. The repository also contains source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
 
-Planned features include Uthmani and IndoPak pages, ayah-level recitation highlighting, offline reading and audio downloads, translations, bookmarks, highlights, and notes. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
+Still planned: downloadable translations, a global shortcut and launch at login, accessibility and performance work, and a visual refresh. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
 
 ## Working with source data
 

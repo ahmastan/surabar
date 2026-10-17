@@ -12,6 +12,12 @@ struct SurahPicker: View {
     var reciter: Reciter?
     @State private var mode = Mode.surahs
     @State private var query = ""
+    /// Juz whose surahs are listed.
+    @State private var expanded: Set<Int> = []
+    #if DEBUG
+    /// For snapshots: open on the juz list with these juz expanded.
+    var debugExpandedJuz: Set<Int>?
+    #endif
     @FocusState private var searchFocused: Bool
 
     enum Mode: String, CaseIterable {
@@ -29,38 +35,106 @@ struct SurahPicker: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($searchFocused)
                 .onSubmit(openFirst)
+            // Each list has its own scroll view and row IDs ("surah-2", "juz-2"), so switching tabs never
+            // reuses the other list's rows.
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                    if mode == .surahs {
-                        ForEach(surahs) { surah in
-                            row(number: surah.number, title: surah.nameSimple, detail: "\(surah.ayahCount) ayahs · \(surah.revelationPlace.capitalized)",
-                                trailing: surah.nameArabic, current: surah.number == model.currentSurah?.number, surahs: [surah.number]) {
-                                model.overlay = nil
-                                model.goTo(surah: surah.number)
+                        if mode == .surahs {
+                            ForEach(surahs) { surah in
+                                row(number: surah.number, title: surah.nameSimple,
+                                    detail: "\(surah.ayahCount) ayahs · \(surah.revelationPlace.capitalized)",
+                                    trailing: surah.nameArabic, current: surah.number == model.currentSurah?.number, surahs: [surah.number]) {
+                                    open(AyahKey(surah: surah.number, ayah: 1))
+                                }
+                                .id("surah-\(surah.number)")
                             }
-                            .id(surah.number)
-                        }
-                    } else {
-                        ForEach(juzList, id: \.self) { juz in
-                            row(number: juz, title: "Juz \(juz)", detail: "", trailing: "", current: juz == model.pageInfo?.juz,
-                                surahs: model.surahs(inJuz: juz)) {
-                                model.overlay = nil
-                                model.goTo(juz: juz)
+                        } else {
+                            ForEach(juzList, id: \.self) { juz in
+                                juzRow(juz).id("juz-\(juz)")
                             }
-                            .id(juz)
                         }
-                    }
                     }
                 }
-                .onAppear { proxy.scrollTo(model.currentSurah?.number ?? 1, anchor: .center) }
+                .id(mode)
+                .onAppear { scrollToCurrent(proxy) }
+                .onChange(of: mode) { scrollToCurrent(proxy) }
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.chrome)
-        .onAppear { searchFocused = true }
+        .onAppear {
+            searchFocused = true
+            #if DEBUG
+            if let debugExpandedJuz {
+                mode = .juz
+                expanded = debugExpandedJuz
+            }
+            #endif
+        }
         .onChange(of: mode) { query = "" }
+    }
+
+    private func scrollToCurrent(_ proxy: ScrollViewProxy) {
+        let target = mode == .surahs ? "surah-\(model.currentSurah?.number ?? 1)" : "juz-\(model.pageInfo?.juz ?? 1)"
+        // After the new list has laid out.
+        DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center) }
+    }
+
+    private func open(_ ayah: AyahKey) {
+        model.overlay = nil
+        model.goTo(ayah)
+    }
+
+    /// A juz, with a disclosure arrow that lists its surahs and the ayahs of each in this juz.
+    @ViewBuilder private func juzRow(_ juz: Int) -> some View {
+        let contents = model.juzContents(juz)
+        let isExpanded = expanded.contains(juz)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if isExpanded { expanded.remove(juz) } else { expanded.insert(juz) }
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(palette.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 20, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isExpanded ? "Hide surahs" : "Show surahs")
+                .accessibilityLabel(isExpanded ? "Hide the surahs in juz \(juz)" : "Show the surahs in juz \(juz)")
+                row(number: juz, title: "Juz \(juz)", detail: juzDetail(contents), trailing: "",
+                    current: juz == model.pageInfo?.juz, surahs: contents.map(\.surah.number)) {
+                    model.overlay = nil
+                    model.goTo(juz: juz)
+                }
+            }
+            if isExpanded {
+                ForEach(contents, id: \.surah.number) { part in
+                    row(number: part.surah.number, title: part.surah.nameSimple, detail: ayahRange(part.ayahs, of: part.surah),
+                        trailing: part.surah.nameArabic, current: false, surahs: [part.surah.number]) {
+                        open(AyahKey(surah: part.surah.number, ayah: part.ayahs.lowerBound))
+                    }
+                    .padding(.leading, 26)
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    /// Where a juz begins, e.g. "Al-Baqarah 142 – Al-Baqarah 252".
+    private func juzDetail(_ contents: [(surah: Surah, ayahs: ClosedRange<Int>)]) -> String {
+        guard let first = contents.first, let last = contents.last else { return "" }
+        return "\(first.surah.nameSimple) \(first.ayahs.lowerBound) – \(last.surah.nameSimple) \(last.ayahs.upperBound)"
+    }
+
+    private func ayahRange(_ ayahs: ClosedRange<Int>, of surah: Surah) -> String {
+        ayahs.count == surah.ayahCount ? "All \(surah.ayahCount) ayahs" : "Ayahs \(ayahs.lowerBound)–\(ayahs.upperBound)"
     }
 
     private var surahs: [Surah] {
@@ -78,8 +152,7 @@ struct SurahPicker: View {
 
     private func openFirst() {
         if mode == .surahs, let surah = surahs.first {
-            model.overlay = nil
-            model.goTo(surah: surah.number)
+            open(AyahKey(surah: surah.number, ayah: 1))
         } else if mode == .juz, let juz = juzList.first {
             model.overlay = nil
             model.goTo(juz: juz)

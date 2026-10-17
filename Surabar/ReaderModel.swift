@@ -11,6 +11,10 @@ final class ReaderModel {
     enum Overlay: Equatable {
         case surahPicker
         case jump
+        /// Bookmarks, highlights, and notes.
+        case annotations
+        /// Editing the note on an ayah.
+        case note(AyahKey)
     }
 
     let state: AppState
@@ -22,6 +26,10 @@ final class ReaderModel {
     var followsPlayback = true
     /// Starts recitation at an ayah (the page's "Play from Here"); set by the app.
     @ObservationIgnored var playAyah: ((AyahKey) -> Void)?
+    /// Loops a range of ayahs ("Loop to Here"); set by the app.
+    @ObservationIgnored var loopAyahs: ((ClosedRange<AyahKey>) -> Void)?
+    /// Bookmarks, highlights, and notes; nil when the store could not be opened.
+    @ObservationIgnored var annotations: AnnotationStore?
     /// Downloadable page fonts by layout id, for layouts drawn with one font per page.
     let pageFonts: [String: PageFontStore]
 
@@ -234,6 +242,17 @@ final class ReaderModel {
         return ayahsStarting(onPage: page)
     }
 
+    /// The surahs in a juz, in order, with the ayahs of each that fall in it.
+    func juzContents(_ juz: Int) -> [(surah: Surah, ayahs: ClosedRange<Int>)] {
+        guard let store, let first = try? store.firstAyah(ofJuz: juz), let last = try? store.lastAyah(ofJuz: juz) else { return [] }
+        return (first.surah ... last.surah).compactMap { number in
+            guard let surah = store.surah(number) else { return nil }
+            let start = number == first.surah ? first.ayah : 1
+            let end = number == last.surah ? last.ayah : surah.ayahCount
+            return (surah, start ... end)
+        }
+    }
+
     /// The surahs with ayahs in a juz, which downloading the juz fetches.
     func surahs(inJuz juz: Int) -> [Int] {
         guard let store, let first = try? store.firstAyah(ofJuz: juz), let last = try? store.lastAyah(ofJuz: juz) else { return [] }
@@ -275,6 +294,19 @@ final class ReaderModel {
         let anchor = isOnPage(state.selectedAyah) ? state.selectedAyah : (pageInfo?.firstAyah ?? state.selectedAyah)
         state.script = id
         if let page = try? store.firstPage(of: anchor, in: target) { state.pages[id] = page }
+    }
+
+    // MARK: Range loops
+
+    /// "Loop from Here", then "Loop to Here" on another ayah (either order) starts the loop.
+    func loopFromHere(_ ayah: AyahKey) {
+        state.loopRangeStart = ayah
+    }
+
+    func loopToHere(_ ayah: AyahKey) {
+        guard let start = state.loopRangeStart else { return }
+        state.loopRangeStart = nil
+        loopAyahs?(min(start, ayah) ... max(start, ayah))
     }
 
     // MARK: Copying

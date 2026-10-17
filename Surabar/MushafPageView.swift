@@ -1,3 +1,4 @@
+import Annotations
 import AppKit
 import MushafRendering
 import SwiftUI
@@ -15,7 +16,8 @@ struct MushafPageView: NSViewRepresentable {
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
         view.update(page: model.pageNumber, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
-                    accent: accent, pageFonts: model.usesPageFonts)
+                    accent: accent, pageFonts: model.usesPageFonts,
+                    marks: (model.annotations?.highlights, model.annotations?.notes.count))
     }
 }
 
@@ -38,7 +40,8 @@ final class MushafPageNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool) {
+    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool,
+                marks: (highlights: [AyahKey: HighlightEntry]?, notes: Int?)) {
         self.theme = theme
         self.accent = accent
         relayout()
@@ -73,8 +76,36 @@ final class MushafPageNSView: NSView {
         guard let pageLayout else { return }
         context.saveGState()
         context.translateBy(x: pageOrigin.x, y: pageOrigin.y)
-        PageRenderer.draw(pageLayout, in: context, colors: colors, highlighted: pageLayout.rects(for: model.state.selectedAyah))
+        // A highlighted selection is outlined, so the highlight keeps its colour.
+        let selection = model.state.selectedAyah
+        var decorations = decorations(for: pageLayout)
+        let highlightedSelection = model.annotations?.highlights[selection] != nil
+        if highlightedSelection {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                decorations.outlines.append(.init(rects: pageLayout.rects(for: selection), color: accent.withAlphaComponent(0.85).cgColor))
+            }
+        }
+        PageRenderer.draw(pageLayout, in: context, colors: colors, highlighted: highlightedSelection ? [] : pageLayout.rects(for: selection),
+                          decorations: decorations)
         context.restoreGState()
+    }
+
+    /// Highlights as fills behind their ayahs, and a dot above the number of each ayah with a note.
+    private func decorations(for pageLayout: PageLayout) -> PageDecorations {
+        guard let annotations = model.annotations else { return .none }
+        var decorations = PageDecorations()
+        let ayahs = Set(pageLayout.items.compactMap(\.item.ayah))
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            for ayah in ayahs.sorted() {
+                if let highlight = annotations.highlights[ayah] {
+                    decorations.fills.append(.init(rects: pageLayout.rects(for: ayah), color: highlight.color.color.cgColor))
+                }
+                if annotations.notes[ayah] != nil, let point = pageLayout.markerPoint(for: ayah) {
+                    decorations.dots.append(.init(center: point, color: accent.cgColor))
+                }
+            }
+        }
+        return decorations
     }
 
     private func pageColors() -> PageColors {
@@ -111,31 +142,62 @@ final class MushafPageNSView: NSView {
         menu.addItem(withTitle: "Ayah \(ayah)", action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
         if model.playAyah != nil {
-            let play = menu.addItem(withTitle: "Play from Here", action: #selector(playFromHere(_:)), keyEquivalent: "")
-            play.target = self
-            play.representedObject = ayah.description
+            add("Play from Here", to: menu, ayah) { $0.playAyah?($1) }
+            if let start = model.state.loopRangeStart, start != ayah {
+                add("Loop \((min(start, ayah) ... max(start, ayah)).title)", to: menu, ayah) { $0.loopToHere($1) }
+                add("Cancel Loop from \(start)", to: menu, ayah) { model, _ in model.state.loopRangeStart = nil }
+            } else {
+                add("Loop from Here", to: menu, ayah) { $0.loopFromHere($1) }
+            }
+            menu.addItem(.separator())
         }
-        let copy = menu.addItem(withTitle: "Copy Ayah", action: #selector(copyAyah(_:)), keyEquivalent: "c")
-        copy.target = self
-        copy.representedObject = ayah.description
-        let withTranslation = menu.addItem(withTitle: "Copy with Translation", action: #selector(copyWithTranslation(_:)),
-                                           keyEquivalent: "")
-        withTranslation.target = self
-        withTranslation.representedObject = ayah.description
-        withTranslation.isEnabled = model.library?.translation != nil
+        if let annotations = model.annotations {
+            add(annotations.isBookmarked(ayah) ? "Remove Bookmark" : "Bookmark", key: "b", to: menu, ayah) {
+                $0.annotations?.toggleBookmark($1)
+            }
+            let highlight = NSMenuItem(title: "Highlight", action: nil, keyEquivalent: "")
+            let colors = NSMenu()
+            for color in HighlightColor.allCases {
+                let item = add(color.title, to: colors, ayah) { $0.annotations?.setHighlight($1, color) }
+                item.image = swatch(color.swatch)
+                item.state = annotations.highlights[ayah]?.color == color ? .on : .off
+            }
+            if annotations.highlights[ayah] != nil {
+                colors.addItem(.separator())
+                add("Remove Highlight", to: colors, ayah) { $0.annotations?.setHighlight($1, nil) }
+            }
+            highlight.submenu = colors
+            menu.addItem(highlight)
+            add(annotations.notes[ayah] == nil ? "Add Note…" : "Edit Note…", to: menu, ayah) { $0.overlay = .note($1) }
+            menu.addItem(.separator())
+        }
+        add("Copy Ayah", key: "c", to: menu, ayah) { $0.copy($1, withTranslation: false) }
+        add("Copy with Translation", to: menu, ayah) { $0.copy($1, withTranslation: true) }.isEnabled = model.library?.translation != nil
         return menu
     }
 
-    @objc private func playFromHere(_ sender: NSMenuItem) {
-        if let ayah = (sender.representedObject as? String).flatMap(AyahKey.init(string:)) { model.playAyah?(ayah) }
+    /// Adds a menu item that runs `action` with the model and the ayah.
+    @discardableResult
+    private func add(_ title: String, key: String = "", to menu: NSMenu, _ ayah: AyahKey,
+                     _ action: @escaping @MainActor (ReaderModel, AyahKey) -> Void) -> NSMenuItem {
+        let item = menu.addItem(withTitle: title, action: #selector(runAyahAction(_:)), keyEquivalent: key)
+        item.keyEquivalentModifierMask = key == "c" ? .command : []
+        item.target = self
+        item.representedObject = AyahAction(ayah: ayah, action: action)
+        return item
     }
 
-    @objc private func copyAyah(_ sender: NSMenuItem) {
-        if let ayah = (sender.representedObject as? String).flatMap(AyahKey.init(string:)) { model.copy(ayah, withTranslation: false) }
+    @objc private func runAyahAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? AyahAction else { return }
+        action.action(model, action.ayah)
     }
 
-    @objc private func copyWithTranslation(_ sender: NSMenuItem) {
-        if let ayah = (sender.representedObject as? String).flatMap(AyahKey.init(string:)) { model.copy(ayah, withTranslation: true) }
+    private func swatch(_ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
+        }
     }
 
     /// Two-finger horizontal swipes turn pages. Pages advance leftwards (right to left), so moving
@@ -175,6 +237,17 @@ final class MushafPageNSView: NSView {
             elements.append(element)
         }
         return elements
+    }
+}
+
+/// A context-menu action for one ayah.
+private final class AyahAction {
+    let ayah: AyahKey
+    let action: @MainActor (ReaderModel, AyahKey) -> Void
+
+    init(ayah: AyahKey, action: @escaping @MainActor (ReaderModel, AyahKey) -> Void) {
+        self.ayah = ayah
+        self.action = action
     }
 }
 

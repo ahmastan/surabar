@@ -137,7 +137,7 @@ struct LoopControl: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("LOOP").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(palette.secondary)
                     HStack(spacing: 4) {
-                        Image(systemName: state.loopMode == .ayah ? "repeat.1" : "repeat")
+                        Image(systemName: state.loopMode == .ayah ? "repeat.1" : state.loopMode == .range ? "arrow.left.and.right" : "repeat")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(state.loopMode == .off ? palette.secondary : palette.accent)
                         Text(value).font(.caption.weight(.semibold)).lineLimit(1)
@@ -180,18 +180,20 @@ struct LoopControl: View {
     }
 
     private var value: String {
-        let title = state.loopMode.title(unit: state.skipUnit)
+        if let start = state.loopRangeStart { return "From \(start)…" }
+        let title = state.loopMode == .range ? state.loopRange?.title ?? "Range" : state.loopMode.title(unit: state.skipUnit)
         guard state.loopMode != .off else { return title }
         return state.repeatCount == 0 ? "\(title) ∞" : "\(title) ×\(state.repeatCount)"
     }
 
     private var sections: [OptionSection] {
         [
-            OptionSection(title: "Repeat", items: LoopMode.allCases.map { mode in
+            OptionSection(title: "Repeat", items: LoopMode.allCases.filter { $0 != .range || state.loopRange != nil }.map { mode in
                 let title = switch mode {
                 case .off: "Off"
                 case .ayah: "Each ayah"
                 case .unit: "The whole \(state.skipUnit.title.lowercased())"
+                case .range: "Ayahs \(state.loopRange?.title ?? "")"
                 }
                 return OptionItem(id: mode.rawValue, title: title, isSelected: state.loopMode == mode) { player.setLoop(mode) }
             }),

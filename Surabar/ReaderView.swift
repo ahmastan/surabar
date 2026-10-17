@@ -6,6 +6,8 @@ struct ReaderActions {
     let detach: () -> Void
     let attach: () -> Void
     let editCustomAccent: () -> Void
+    let exportAnnotations: () -> Void
+    let importAnnotations: () -> Void
 }
 
 /// The reader: navigation header, then either the mushaf page with its footer, the optional translation
@@ -21,7 +23,7 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             if state.isShowingSettings {
                 SettingsView(state: state, model: model, player: player, downloads: downloads, palette: palette,
-                             editCustomAccent: actions.editCustomAccent)
+                             actions: actions)
             } else {
                 header
                 Divider()
@@ -67,6 +69,13 @@ struct ReaderView: View {
 
     private var palette: ReaderPalette { ReaderPalette(state: state) }
 
+    #if DEBUG
+    /// Snapshots only: open the surah picker on the juz list with these expanded.
+    var debugExpandedJuz: Set<Int>?
+    #else
+    let debugExpandedJuz: Set<Int>? = nil
+    #endif
+
     /// In "Player only" mode there is no page to cover, so the surah picker and jump box open as popovers.
     private func popoverBinding(_ overlay: ReaderModel.Overlay) -> Binding<Bool> {
         Binding(get: { state.viewMode == .playerOnly && model.overlay == overlay },
@@ -99,6 +108,15 @@ struct ReaderView: View {
 
             Spacer(minLength: 6)
 
+            if let annotations = model.annotations {
+                headerButton("Bookmarks, highlights, and notes", symbol: model.overlay == .annotations ? "bookmark.fill" : "bookmark") {
+                    toggle(.annotations)
+                }
+                .disabled(model.library == nil)
+                .popover(isPresented: popoverBinding(.annotations), arrowEdge: .bottom) {
+                    AnnotationsPanel(model: model, annotations: annotations, palette: palette).frame(width: 320, height: 380)
+                }
+            }
             headerButton("Jump to ayah or page (⌘L)", symbol: "magnifyingglass") { toggle(.jump) }
                 .disabled(model.library == nil)
                 .popover(isPresented: popoverBinding(.jump), arrowEdge: .bottom) {
@@ -199,12 +217,23 @@ struct ReaderView: View {
     @ViewBuilder private var overlay: some View {
         switch state.viewMode == .playerOnly ? nil : model.overlay {
         case .surahPicker:
-            SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter)
+            SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter, debugExpandedJuz: debugExpandedJuz)
                 .transition(.opacity.combined(with: .move(edge: .top)))
         case .jump:
             JumpBox(model: model, palette: palette)
                 .padding(10)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+        case .annotations:
+            if let annotations = model.annotations {
+                AnnotationsPanel(model: model, annotations: annotations, palette: palette)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        case .note(let ayah):
+            if let annotations = model.annotations {
+                NoteEditor(ayah: ayah, model: model, annotations: annotations, palette: palette)
+                    .padding(10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         case nil:
             EmptyView()
         }
@@ -268,16 +297,36 @@ struct TranslationStrip: View {
             HStack {
                 Text(model.state.selectedAyah.description).font(.caption.weight(.bold)).foregroundStyle(palette.accent)
                 Text(playing ? "Playing" : "Selected").font(.caption).foregroundStyle(palette.secondary)
+                if let annotations = model.annotations {
+                    let ayah = model.state.selectedAyah
+                    if annotations.isBookmarked(ayah) {
+                        Image(systemName: "bookmark.fill").font(.caption2).foregroundStyle(palette.accent).help("Bookmarked")
+                    }
+                    if let highlight = annotations.highlights[ayah] {
+                        Circle().fill(Color(nsColor: highlight.color.swatch)).frame(width: 8, height: 8).help("\(highlight.color.title) highlight")
+                    }
+                }
                 Spacer()
                 Text(model.library?.translation?.name ?? "").font(.caption).foregroundStyle(palette.secondary)
             }
             ScrollView(.vertical) {
-                Text(model.selectedTranslation ?? "No bundled translation.")
-                    .font(.callout)
-                    .lineSpacing(1.5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.selectedTranslation ?? "No bundled translation.")
+                        .font(.callout)
+                        .lineSpacing(1.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                    if let note = model.annotations?.notes[model.state.selectedAyah] {
+                        Label(note.text, systemImage: "note.text")
+                            .font(.callout.italic())
+                            .foregroundStyle(palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .onTapGesture(count: 2) { model.overlay = .note(model.state.selectedAyah) }
+                            .help("Your note. Double-click to edit")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity)
             .frame(height: ReaderLayout.translationTextHeight)

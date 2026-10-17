@@ -62,8 +62,9 @@ enum PlaybackStop: String, CaseIterable, Identifiable {
 }
 
 /// The Loop button's modes, cycled in this order. `unit` repeats the surah or page, following the skip unit.
+/// `range` (ayah X to Y) is set from the ayah menu; cycling from it turns the loop off.
 enum LoopMode: String, CaseIterable, Identifiable {
-    case off, ayah, unit
+    case off, ayah, unit, range
 
     var id: Self { self }
 
@@ -71,7 +72,7 @@ enum LoopMode: String, CaseIterable, Identifiable {
         switch self {
         case .off: .ayah
         case .ayah: .unit
-        case .unit: .off
+        case .unit, .range: .off
         }
     }
 
@@ -80,7 +81,24 @@ enum LoopMode: String, CaseIterable, Identifiable {
         case .off: "Off"
         case .ayah: "Ayah"
         case .unit: unit.title
+        case .range: "Range"
         }
+    }
+}
+
+extension ClosedRange where Bound == AyahKey {
+    /// "2:255–257" within a surah, "2:286–3:2" across surahs.
+    var title: String {
+        lowerBound.surah == upperBound.surah ? "\(lowerBound)–\(upperBound.ayah)" : "\(lowerBound)–\(upperBound)"
+    }
+
+    /// Stored as "2:255-2:257".
+    var stored: String { "\(lowerBound)-\(upperBound)" }
+
+    init?(stored: String) {
+        let parts = stored.split(separator: "-").compactMap { AyahKey(string: String($0)) }
+        guard parts.count == 2, parts[0] <= parts[1] else { return nil }
+        self = parts[0] ... parts[1]
     }
 }
 
@@ -195,6 +213,7 @@ final class AppState {
         static let repeatCount = "loopRepeatCount"
         static let loopMode = "loopMode"
         static let playbackStop = "playbackStop"
+        static let loopRange = "loopRange"
         static let cacheBudget = "audioCacheBudget"
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
@@ -209,6 +228,11 @@ final class AppState {
     }
 
     @ObservationIgnored private let defaults: UserDefaults
+
+    #if DEBUG
+    /// For tests that reopen the same settings.
+    var debugDefaults: UserDefaults { defaults }
+    #endif
 
     var size: ReaderSize {
         didSet { defaults.set(size.rawValue, forKey: Keys.size) }
@@ -248,6 +272,14 @@ final class AppState {
         didSet { defaults.set(loopMode.rawValue, forKey: Keys.loopMode) }
     }
 
+    /// The ayahs a range loop repeats.
+    var loopRange: ClosedRange<AyahKey>? {
+        didSet { defaults.set(loopRange?.stored, forKey: Keys.loopRange) }
+    }
+
+    /// "Loop from Here" was chosen; "Loop to Here" on another ayah completes the range. Not saved.
+    var loopRangeStart: AyahKey?
+
     var playbackStop: PlaybackStop {
         didSet { defaults.set(playbackStop.rawValue, forKey: Keys.playbackStop) }
     }
@@ -264,6 +296,8 @@ final class AppState {
     var settingsTab = SettingsTab.appearance
     /// "Manage downloads", shown within Settings › Player.
     var showsDownloads = false
+    /// The outcome of the last backup import or export, shown in Settings › General.
+    var backupMessage: String?
     /// The measured height of each Settings tab's content; the reader resizes to fit it.
     var settingsContentHeights: [SettingsTab: Double] = [:]
 
@@ -329,7 +363,10 @@ final class AppState {
         skipUnit = defaults.string(forKey: Keys.skipUnit).flatMap(SkipUnit.init(rawValue:)) ?? .surah
         let storedCount = defaults.object(forKey: Keys.repeatCount) as? Int ?? 0
         repeatCount = Self.repeatCounts.contains(storedCount) ? storedCount : 0
-        loopMode = defaults.string(forKey: Keys.loopMode).flatMap(LoopMode.init(rawValue:)) ?? .off
+        let storedRange = defaults.string(forKey: Keys.loopRange).flatMap(ClosedRange<AyahKey>.init(stored:))
+        let storedLoop = defaults.string(forKey: Keys.loopMode).flatMap(LoopMode.init(rawValue:)) ?? .off
+        loopMode = storedLoop == .range && storedRange == nil ? .off : storedLoop
+        loopRange = storedRange
         playbackStop = defaults.string(forKey: Keys.playbackStop).flatMap(PlaybackStop.init(rawValue:)) ?? .surah
         let storedBudget = defaults.integer(forKey: Keys.cacheBudget)
         cacheBudget = Self.cacheBudgets.contains(storedBudget) ? storedBudget : 1_000_000_000

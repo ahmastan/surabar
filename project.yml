@@ -40,6 +40,8 @@ targets:
         product: QuranStore
       - package: SurabarKit
         product: Recitation
+      - package: SurabarKit
+        product: Annotations
     settings:
       base:
         PRODUCT_NAME: Surabar

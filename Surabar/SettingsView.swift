@@ -9,8 +9,8 @@ struct SettingsView: View {
     let player: RecitationPlayer?
     let downloads: DownloadCenter?
     let palette: ReaderPalette
-    /// Opens the colour panel for the custom accent.
-    let editCustomAccent: () -> Void
+    /// Opens the colour panel and the backup file panels.
+    let actions: ReaderActions
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +20,7 @@ struct SettingsView: View {
                 Button("Done") {
                     state.isShowingSettings = false
                     state.showsDownloads = false
+                    state.backupMessage = nil
                 }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -93,7 +94,7 @@ struct SettingsView: View {
             }
             Divider()
             SettingsRow("Accent colour", value: state.accent.title, palette: palette, stacked: true) {
-                AccentSwatches(state: state, palette: palette, editCustom: editCustomAccent)
+                AccentSwatches(state: state, palette: palette, editCustom: actions.editCustomAccent)
             }
             Divider()
             SettingsRow("Menu bar icon", value: state.menuBarIcon.title, palette: palette, stacked: true) {
@@ -223,11 +224,29 @@ struct SettingsView: View {
                 segmented($state.viewMode, ReaderViewMode.allCases, title: \.title)
             }
         }
+        if let annotations = model.annotations {
+            SettingsGroup(title: "Bookmarks, highlights, and notes", palette: palette) {
+                SettingsRow("Backup", value: annotationSummary(annotations), palette: palette,
+                            footnote: state.backupMessage ?? "Import merges a backup: for each ayah the newer entry is kept.") {
+                    HStack(spacing: 6) {
+                        Button("Import…", action: actions.importAnnotations)
+                        Button("Export…", action: actions.exportAnnotations)
+                    }
+                }
+            }
+        }
         SettingsGroup(title: "Window", palette: palette) {
             SettingsRow("Keep detached window on top", palette: palette) {
                 Toggle("Keep detached window on top", isOn: $state.keepOnTop).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
         }
+    }
+
+    private func annotationSummary(_ annotations: AnnotationStore) -> String {
+        let counts = [(annotations.bookmarks.count, "bookmark"), (annotations.highlights.count, "highlight"), (annotations.notes.count, "note")]
+            .filter { $0.0 > 0 }
+            .map { "\($0.0) \($0.1)\($0.0 == 1 ? "" : "s")" }
+        return counts.isEmpty ? "None yet" : counts.joined(separator: ", ")
     }
 
     private func segmented<Value: Hashable>(_ selection: Binding<Value>, _ values: [Value], title: KeyPath<Value, String>) -> some View {
