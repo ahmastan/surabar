@@ -17,6 +17,8 @@ final class ReaderModel {
     let library: QuranLibrary?
     let loadError: String?
     var overlay: Overlay?
+    /// Downloadable page fonts by layout id, for layouts drawn with one font per page.
+    let pageFonts: [String: PageFontStore]
 
     @ObservationIgnored private var pageCache: [String: MushafPage] = [:]
     @ObservationIgnored private var layoutCache: [String: PageLayout] = [:]
@@ -28,9 +30,15 @@ final class ReaderModel {
         case .success(let value):
             self.library = value
             loadError = nil
+            var fonts: [String: PageFontStore] = [:]
+            for layout in value.store.layouts {
+                fonts[layout.id] = PageFontStore(layout: layout, store: value.store)
+            }
+            pageFonts = fonts
         case .failure(let error):
             self.library = nil
             loadError = error.description
+            pageFonts = [:]
         }
         normalizePosition()
     }
@@ -46,7 +54,32 @@ final class ReaderModel {
 
     var font: MushafFont? { layout.flatMap { library?.fonts[$0.id] } }
 
-    var style: PageStyle { PageStyle(calibration: layout?.calibration ?? 0.04) }
+    /// The current layout's page fonts, when it has them.
+    var currentPageFonts: PageFontStore? { layout.flatMap { pageFonts[$0.id] } }
+
+    /// Whether the current layout is drawn with its page fonts; otherwise with its single (fallback) font.
+    var usesPageFonts: Bool { currentPageFonts?.status == .ready }
+
+    var style: PageStyle { style(usingPageFonts: usesPageFonts) }
+
+    private func style(usingPageFonts: Bool) -> PageStyle {
+        var style: PageStyle
+        if usingPageFonts, let settings = layout?.pageFonts {
+            style = PageStyle(calibration: settings.calibration,
+                              lineMetrics: LineMetrics(lineHeight: settings.lineHeight, ascent: settings.ascent))
+        } else {
+            style = PageStyle(calibration: layout?.calibration ?? 0.04)
+        }
+        // Calibrations may fit most lines rather than the widest (IndoPak); the rest shrink slightly.
+        style.shrinksWideLines = true
+        return style
+    }
+
+    /// Starts the one-time page font download when the current layout needs it.
+    func preparePageFonts() {
+        guard let fonts = currentPageFonts, fonts.status == .missing else { return }
+        fonts.download()
+    }
 
     var pageNumber: Int {
         guard let layout else { return 1 }
@@ -81,9 +114,11 @@ final class ReaderModel {
     /// The page laid out to fit `size`: full width when it fits, otherwise narrower so the whole page shows.
     func pageLayout(fitting size: CGSize) -> PageLayout? {
         guard let layout, let font, let store, size.width > 40, size.height > 40 else { return nil }
+        let glyphFonts = usesPageFonts ? currentPageFonts?.glyphFonts(page: pageNumber) : nil
+        let style = style(usingPageFonts: glyphFonts != nil)
         let width = PageLayoutEngine.width(fitting: size.height, maximumWidth: size.width, linesPerPage: layout.linesPerPage,
                                            font: font, style: style).rounded(.down)
-        let key = "\(layout.id):\(pageNumber):\(Int(width))"
+        let key = "\(layout.id):\(glyphFonts == nil ? "f" : "g"):\(pageNumber):\(Int(width))"
         if let cached = layoutCache[key] { return cached }
         let page: MushafPage
         if let cached = pageCache["\(layout.id):\(pageNumber)"] {
@@ -93,7 +128,7 @@ final class ReaderModel {
             page = loaded
             pageCache["\(layout.id):\(pageNumber)"] = loaded
         }
-        let result = PageLayoutEngine.layout(page, width: width, font: font, style: style)
+        let result = PageLayoutEngine.layout(page, width: width, font: font, style: style, glyphFonts: glyphFonts)
         if layoutCache.count > 24 { layoutCache.removeAll() }
         if pageCache.count > 24 { pageCache.removeAll() }
         layoutCache[key] = result

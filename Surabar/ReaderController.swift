@@ -129,7 +129,8 @@ final class ReaderController: NSObject {
     /// Re-applies window settings whenever the observed state changes.
     private func observeState() {
         withObservationTracking {
-            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script)
+            // Page fonts change the page's height once they are downloaded.
+            _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()

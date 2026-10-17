@@ -43,7 +43,7 @@ python3 tools/build_quran_db.py build --output build/quran.sqlite --layout uthma
 python3 tools/build_quran_db.py verify build/quran.sqlite
 ```
 
-QUL does not offer the Unicode Uthmani layout as a download. `tools/convert_qul_preview_layout.py` converts saved copies of its public preview pages into the same format; the manifest records the exact command, and the few preview pages with defects that are taken from QUL's 1421H glyph layout instead.
+Uthmani pages use QUL's QCF V2 layout with one glyph font per page, as printed mushaf apps do, so every line fills the width without stretched gaps. Each word keeps its Unicode text for copying and accessibility, and has glyph codes for its page font. The page fonts are not bundled: the database lists each file with its size and SHA-256, and the app downloads them once, showing the Unicode text with the QPC Hafs font until they are present.
 
 The builder refuses files whose hashes differ from the manifest, and layouts not yet verified as matching their word data. It copies source text unchanged. Verification checks surah and ayah counts, word order and positions, page and line numbering, complete non-overlapping line coverage of every word, surah headers, basmallah lines, and a content digest. It needs only the generated database.
 
@@ -55,6 +55,7 @@ The builder refuses files whose hashes differ from the manifest, and layouts not
 swift run --package-path SurabarKit surabar-render sample --font GeezaPro --out build/sample
 swift run --package-path SurabarKit surabar-render render --db build/quran.sqlite --layout indopak --font FONT.ttf --pages 1,2 --out build/pages
 swift run --package-path SurabarKit surabar-render check --db build/quran.sqlite --layout indopak --font FONT.ttf
+swift run --package-path SurabarKit surabar-render check --db build/quran.sqlite --layout uthmani --font FALLBACK.ttf --page-fonts FONT_DIR
 ```
 
 `render` writes PNG snapshots at the S, M, and L reader widths (340, 440, and 560 points). `check` lays out every page and reports overflowing lines, missing glyphs, ink clipped at the page edge, and overlapping words. `sample` uses synthetic, non-Quranic Arabic text.

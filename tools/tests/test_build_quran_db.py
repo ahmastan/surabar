@@ -231,6 +231,75 @@ class BuildQuranDatabaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("content_sha256 does not match", result.stderr)
 
+    def add_page_fonts(self, manifest, glyphs=None, corrupt_page=None):
+        """Adds glyph codes and one synthetic page font per page to the sample layout."""
+        words = self.sources.word_rows()
+        glyph_rows = glyphs if glyphs is not None else [
+            (index, key, surah, ayah, chr(0xFC41 + (index % 40))) for index, key, surah, ayah, _ in words]
+        path = self.root / "layout" / "glyphs.db"
+        path.unlink(missing_ok=True)
+        with sqlite3.connect(path) as connection:
+            connection.execute("CREATE TABLE words (id INTEGER, location TEXT, surah INTEGER, ayah INTEGER, text TEXT)")
+            connection.executemany("INSERT INTO words VALUES (?, ?, ?, ?, ?)", glyph_rows)
+        connection.close()
+        data = json.loads(manifest.read_text())
+        spec = data["layouts"]["sample"]
+        fonts = self.root / "layout" / "fonts"
+        fonts.mkdir(exist_ok=True)
+        listing = ""
+        for page in range(1, spec["page_count"] + 1):
+            content = f"page font {page}".encode()
+            (fonts / f"p{page}.woff2").write_bytes(content)
+            listing += f"p{page}.woff2 {hashlib.sha256(content).hexdigest()}\n"
+        if corrupt_page:
+            (fonts / f"p{corrupt_page}.woff2").write_bytes(b"changed")
+        spec["glyphs"] = {"url": "https://example.invalid", "path": "layout/glyphs.db",
+                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        spec["page_fonts"] = {"download": "https://example.invalid/p{page}.woff2", "directory": "layout/fonts",
+                              "file": "p{page}.woff2", "directory_sha256": hashlib.sha256(listing.encode()).hexdigest(),
+                              "calibration": 0.06, "line_height": 1.8, "ascent": 1.2}
+        manifest.write_text(json.dumps(data))
+        return manifest
+
+    def test_page_fonts_and_glyph_codes_are_recorded(self):
+        manifest = self.add_page_fonts(self.sources.write())
+        result = self.build(manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with sqlite3.connect(self.output) as connection:
+            layout = connection.execute("SELECT page_count, page_font_url, page_font_calibration, page_font_line_height, "
+                                        "page_font_ascent FROM layouts").fetchone()
+            self.assertEqual(layout[1:], ("https://example.invalid/p{page}.woff2", 0.06, 1.8, 1.2))
+            fonts = connection.execute("SELECT page, file, bytes, sha256 FROM page_fonts ORDER BY page").fetchall()
+            self.assertEqual([row[0] for row in fonts], list(range(1, layout[0] + 1)))
+            self.assertEqual(fonts[0][1:], ("p1.woff2", 11, hashlib.sha256(b"page font 1").hexdigest()))
+            self.assertEqual(connection.execute("SELECT text, glyph FROM words WHERE word = 1").fetchone(),
+                             ("اختبار", chr(0xFC42)))
+        connection.close()
+        self.assertEqual(self.run_tool("verify", self.output).returncode, 0)
+
+    def test_mismatched_glyphs_or_page_fonts_are_refused(self):
+        words = self.sources.word_rows()
+        glyphs = [(index, key, surah, ayah, chr(0xFC41)) for index, key, surah, ayah, _ in words]
+        glyphs[5] = (glyphs[5][0], "1:1:9", *glyphs[5][2:])
+        result = self.build(self.add_page_fonts(self.sources.write(), glyphs=glyphs))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("word 6 is at 1:1:9", result.stderr)
+
+        result = self.build(self.add_page_fonts(self.sources.write(), corrupt_page=3))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("directory digest", result.stderr)
+        self.assertFalse(self.output.exists())
+
+    def test_verify_requires_glyphs_for_paged_layouts(self):
+        self.assertEqual(self.build(self.add_page_fonts(self.sources.write())).returncode, 0)
+        with sqlite3.connect(self.output) as connection:
+            connection.execute("UPDATE words SET glyph = NULL WHERE word = 7")
+            connection.execute("DELETE FROM page_fonts WHERE page = 2")
+        connection.close()
+        result = self.run_tool("verify", self.output)
+        self.assertIn("1 words have no glyph codes", result.stderr)
+        self.assertIn("page fonts are not exactly", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

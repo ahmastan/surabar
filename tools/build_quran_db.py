@@ -5,6 +5,11 @@
 SQLite database, then verifies it. `verify` checks an existing database on its
 own, without the raw downloads. Source text is copied byte-for-byte; the tool
 never normalizes or rewrites Quranic text.
+
+A layout may also have glyph-code words and one font per page (QCF V2). The
+page fonts are not bundled: the database lists each file with its size and
+SHA-256 so the app can download and check them, and the layout's single font
+is the fallback until they are present.
 """
 
 import argparse
@@ -16,7 +21,7 @@ import sqlite3
 import sys
 import tempfile
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SURAH_COUNT = 114
 AYAH_COUNT = 6236
 # Quran divisions: (manifest key, JSON number field, count).
@@ -51,7 +56,11 @@ CREATE TABLE layouts (
     verified INTEGER NOT NULL,
     font_file TEXT NOT NULL,
     font_sha256 TEXT NOT NULL,
-    font_calibration REAL
+    font_calibration REAL,
+    page_font_url TEXT,
+    page_font_calibration REAL,
+    page_font_line_height REAL,
+    page_font_ascent REAL
 ) WITHOUT ROWID;
 CREATE TABLE words (
     layout TEXT NOT NULL REFERENCES layouts(id),
@@ -60,6 +69,7 @@ CREATE TABLE words (
     ayah INTEGER NOT NULL,
     position INTEGER NOT NULL,
     text TEXT NOT NULL,
+    glyph TEXT,
     PRIMARY KEY (layout, word),
     FOREIGN KEY (surah, ayah) REFERENCES ayahs(surah, ayah)
 ) WITHOUT ROWID;
@@ -81,6 +91,14 @@ CREATE TABLE ayah_pages (
     page INTEGER NOT NULL,
     PRIMARY KEY (layout, surah, ayah, page)
 ) WITHOUT ROWID;
+CREATE TABLE page_fonts (
+    layout TEXT NOT NULL REFERENCES layouts(id),
+    page INTEGER NOT NULL,
+    file TEXT NOT NULL,
+    bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (layout, page)
+) WITHOUT ROWID;
 CREATE INDEX words_by_ayah ON words (layout, surah, ayah);
 CREATE INDEX ayah_pages_by_page ON ayah_pages (layout, page);
 """
@@ -93,6 +111,7 @@ DIGEST_TABLES = (
     ("words", "layout, word"),
     ("lines", "layout, page, line"),
     ("ayah_pages", "layout, surah, ayah, page"),
+    ("page_fonts", "layout, page"),
 )
 
 
@@ -235,7 +254,55 @@ def read_words(path: Path, layout: str) -> list:
         ayah_key = (int(surah_number), int(ayah_number))
         positions[ayah_key] = positions.get(ayah_key, 0) + 1
         position = int(parts[2]) if len(parts) == 3 else positions[ayah_key]
-        rows.append((layout, int(word), ayah_key[0], ayah_key[1], position, word_text))
+        rows.append((layout, int(word), ayah_key[0], ayah_key[1], position, word_text, None))
+    return rows
+
+
+def add_glyphs(words: list, path: Path, layout: str) -> list:
+    """Attaches each word's glyph codes from a glyph-script export with the same word ids and locations."""
+    label = f"{layout} glyphs"
+    connection = open_source_db(path)
+    try:
+        columns = columns_of(connection, "words", label)
+        index = pick(columns, label, "word_index", "id")
+        key = pick(columns, label, "word_key", "location")
+        text = pick(columns, label, "text")
+        glyphs = {int(word): (str(location), glyph) for word, location, glyph in connection.execute(
+            f'SELECT "{index}", "{key}", "{text}" FROM words')}
+    finally:
+        connection.close()
+    if len(glyphs) != len(words):
+        raise SourceError(f"{label}: {len(glyphs)} words, but the text has {len(words)}")
+    rows = []
+    for row in words:
+        word, surah, ayah, position = row[1:5]
+        location, glyph = glyphs.get(word, (None, None))
+        if location is None:
+            raise SourceError(f"{label}: word {word} is missing")
+        if location != f"{surah}:{ayah}:{position}":
+            raise SourceError(f"{label}: word {word} is at {location}, the text has {surah}:{ayah}:{position}")
+        if not isinstance(glyph, str) or not glyph or any(ord(c) < 0xF000 and c != " " for c in glyph):
+            raise SourceError(f"{label}: word {word} has unexpected glyph codes {glyph!r}")
+        rows.append((*row[:6], glyph))
+    return rows
+
+
+def read_page_fonts(spec: dict, raw: Path, layout: str, page_count: int) -> list:
+    """Hashes one font file per page and checks the set against the manifest's directory digest."""
+    label = f"{layout} page fonts"
+    directory = raw / spec["directory"]
+    rows, listing = [], []
+    for page in range(1, page_count + 1):
+        name = spec["file"].format(page=page)
+        path = directory / name
+        if not path.is_file():
+            raise SourceError(f"{label}: missing {path} (download {spec['download'].format(page=page)})")
+        digest = sha256(path)
+        rows.append((layout, page, name, path.stat().st_size, digest))
+        listing.append(f"{name} {digest}\n")
+    actual = hashlib.sha256("".join(listing).encode()).hexdigest()
+    if actual != spec.get("directory_sha256"):
+        raise SourceError(f"{label}: directory digest {actual} != {spec.get('directory_sha256')}")
     return rows
 
 
@@ -310,8 +377,9 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
         if not spec["verified"] and not allow_unverified:
             errors.append(f"{layout}: layout is not verified ({spec['verification_note']}); "
                           "use --allow-unverified only for inspection builds")
-        for part in ("words", "layout", "font"):
-            need(spec[part], f"{layout} {part}")
+        for part in ("words", "layout", "font", "glyphs"):
+            if part in spec:
+                need(spec[part], f"{layout} {part}")
     if errors:
         return errors
 
@@ -325,15 +393,23 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
         if missing:
             raise SourceError(f"{len(missing)} ayahs lack a division, first {missing[0]}")
         ayahs = [(s, a, *(division[(s, a)] for division in divisions)) for s, a in ayahs]
-        layout_rows, words, lines = [], [], []
+        layout_rows, words, lines, page_fonts = [], [], [], []
         for layout in layouts:
             spec = manifest["layouts"][layout]
             font = spec["font"]
+            paged = spec.get("page_fonts")
             layout_rows.append((layout, spec["name"], spec["page_count"], spec["lines_per_page"],
                                 1 if spec["verified"] else 0, Path(font["path"]).name,
-                                font["sha256"], font.get("calibration")))
-            words += read_words(sources[f"{layout} words"], layout)
+                                font["sha256"], font.get("calibration"),
+                                *((paged["download"], paged["calibration"], paged["line_height"],
+                                   paged["ascent"]) if paged else (None, None, None, None))))
+            layout_words = read_words(sources[f"{layout} words"], layout)
+            if f"{layout} glyphs" in sources:
+                layout_words = add_glyphs(layout_words, sources[f"{layout} glyphs"], layout)
+            words += layout_words
             lines += read_lines(sources[f"{layout} layout"], layout)
+            if paged:
+                page_fonts += read_page_fonts(paged, raw, layout, spec["page_count"])
     except (SourceError, OSError, ValueError, TypeError, sqlite3.Error) as error:
         return [str(error)]
 
@@ -350,9 +426,10 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
             with connection:
                 connection.executemany("INSERT INTO surahs VALUES (?, ?, ?, ?, ?, ?, ?)", surahs)
                 connection.executemany("INSERT INTO ayahs VALUES (?, ?, ?, ?, ?)", ayahs)
-                connection.executemany("INSERT INTO layouts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                connection.executemany("INSERT INTO layouts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                        sorted(layout_rows))
-                connection.executemany("INSERT INTO words VALUES (?, ?, ?, ?, ?, ?)", sorted(words))
+                connection.executemany("INSERT INTO words VALUES (?, ?, ?, ?, ?, ?, ?)", sorted(words))
+                connection.executemany("INSERT INTO page_fonts VALUES (?, ?, ?, ?, ?)", sorted(page_fonts))
                 connection.executemany("INSERT INTO lines VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                        sorted(lines))
                 connection.executemany("INSERT INTO ayah_pages VALUES (?, ?, ?, ?)",
@@ -379,11 +456,25 @@ def build(manifest_path: Path, raw: Path, output: Path, layouts: list,
 
 
 def verify_layout(connection: sqlite3.Connection, layout: str, page_count: int,
-                  lines_per_page: int, bismillah_surahs: set) -> list:
+                  lines_per_page: int, bismillah_surahs: set, paged: bool) -> list:
     errors = []
 
     def fail(message):
         errors.append(f"{layout}: {message}")
+
+    fonts = [row[0] for row in connection.execute(
+        "SELECT page FROM page_fonts WHERE layout = ? ORDER BY page", (layout,))]
+    glyphless = connection.execute(
+        "SELECT COUNT(*) FROM words WHERE layout = ? AND (glyph IS NULL OR glyph = '')", (layout,)).fetchone()[0]
+    glyphs = connection.execute(
+        "SELECT COUNT(*) FROM words WHERE layout = ? AND glyph IS NOT NULL", (layout,)).fetchone()[0]
+    if paged:
+        if fonts != list(range(1, page_count + 1)):
+            fail(f"page fonts are not exactly 1..{page_count} (found {len(fonts)})")
+        if glyphless:
+            fail(f"{glyphless} words have no glyph codes for the page fonts")
+    elif fonts or glyphs:
+        fail("has glyph codes or page fonts but no page font settings")
 
     words = connection.execute(
         "SELECT word, surah, ayah, position FROM words WHERE layout = ? ORDER BY word",
@@ -527,12 +618,12 @@ def verify(path: Path) -> list:
             errors.append("surahs 1 and 9 must not have a separate basmallah")
 
         layouts = connection.execute(
-            "SELECT id, page_count, lines_per_page FROM layouts ORDER BY id").fetchall()
+            "SELECT id, page_count, lines_per_page, page_font_url IS NOT NULL FROM layouts ORDER BY id").fetchall()
         if not layouts:
             errors.append("no layouts")
-        for layout, page_count, lines_per_page in layouts:
+        for layout, page_count, lines_per_page, paged in layouts:
             errors += verify_layout(connection, layout, page_count, lines_per_page,
-                                    bismillah_surahs)
+                                    bismillah_surahs, bool(paged))
         return errors
     except sqlite3.Error as error:
         return [f"database error: {error}"]

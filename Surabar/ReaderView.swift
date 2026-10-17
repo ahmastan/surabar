@@ -44,6 +44,8 @@ struct ReaderView: View {
         .background(palette.chrome)
         .foregroundStyle(palette.ink)
         .animation(.easeOut(duration: 0.12), value: model.overlay)
+        // The first time a layout with page fonts is shown, fetch them once.
+        .task(id: model.state.script) { model.preparePageFonts() }
     }
 
     private var palette: ReaderPalette { ReaderPalette(theme: state.theme) }
@@ -124,7 +126,9 @@ struct ReaderView: View {
                 model.turnPage(1)
             }
             Spacer()
-            if let info = model.pageInfo, let layout = model.layout {
+            if let fonts = model.currentPageFonts, fonts.status != .ready, fonts.status != .missing {
+                PageFontStatus(fonts: fonts, palette: palette)
+            } else if let info = model.pageInfo, let layout = model.layout {
                 Text("Page \(info.number) of \(layout.pageCount) · Juz \(info.juz) · Hizb \(info.hizb)")
                     .font(.caption)
                     .foregroundStyle(palette.secondary)
@@ -178,6 +182,37 @@ struct ReaderView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Progress of the one-time page font download, or a retry after a failure, shown in the page footer.
+struct PageFontStatus: View {
+    let fonts: PageFontStore
+    let palette: ReaderPalette
+
+    var body: some View {
+        Group {
+            switch fonts.status {
+            case .downloading(let fraction):
+                HStack(spacing: 8) {
+                    ProgressView(value: fraction).progressViewStyle(.linear).frame(width: 60).tint(palette.accent)
+                    Text("Downloading mushaf pages · \(Int(fraction * 100))%").font(.caption).monospacedDigit()
+                        .foregroundStyle(palette.secondary)
+                }
+                .help("A one-time download of \(ByteCountFormatter.string(fromByteCount: Int64(fonts.totalBytes), countStyle: .file)). "
+                      + "The page is shown with the standard font until it finishes.")
+            case .failed(let message):
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Text("Mushaf pages couldn't download").font(.caption).foregroundStyle(palette.secondary)
+                    Button("Retry") { fonts.download() }.buttonStyle(.link).font(.caption.weight(.semibold))
+                }
+                .help(message)
+            case .missing, .ready:
+                EmptyView()
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import MushafRendering
 import Testing
@@ -112,4 +113,44 @@ private func layout(_ lines: [MushafLine], width: Double = ReaderSize.medium.wid
     #expect(narrower < 440)
     let fitted = PageLayoutEngine.pageHeight(width: narrower, linesPerPage: 15, font: arabic, style: style)
     #expect(abs(fitted - height * 0.7) < 0.5)
+}
+
+@Test func wideLinesShrinkToFitWhenAllowed() {
+    let page = MushafPage(number: 1, linesPerPage: 15, lines: [line(1, centered: false), line(2, centered: false, count: 3)])
+    var style = PageStyle(calibration: Calibration.ratio(for: [page], font: arabic).ratio * 1.2)
+    #expect(!PageLayoutEngine.layout(page, width: 440, font: arabic, style: style).diagnostics.overflowingLines.isEmpty)
+    style.shrinksWideLines = true
+    let result = PageLayoutEngine.layout(page, width: 440, font: arabic, style: style)
+    #expect(result.diagnostics.overflowingLines.isEmpty)
+    #expect(abs(result.diagnostics.lines[0].scale - 1 / 1.2) < 0.01)
+    #expect(result.diagnostics.lines[1].scale == 1, "lines that fit keep the page's font size")
+    let first = result.items.filter { $0.lineIndex == 0 }
+    #expect(first.allSatisfy { $0.typographicRect.minX >= style.horizontalInset - 0.01 })
+}
+
+@Test func percentileCalibrationFitsThatShareOfLines() {
+    let lines = (1 ... 10).map { line($0, centered: false, count: $0 == 10 ? words.count : 3) }
+    let page = MushafPage(number: 1, linesPerPage: 15, lines: lines)
+    let widest = Calibration.ratio(for: [page], font: arabic)
+    let typical = Calibration.ratio(for: [page], font: arabic, percentile: 80)
+    #expect(widest.widestLine == 10)
+    #expect(typical.ratio > widest.ratio)
+}
+
+@Test func glyphFontsDrawGlyphCodesWithFixedLineMetrics() {
+    // A stand-in "page font": glyph codes here are ordinary letters, drawn instead of the item text.
+    let items = ["ا", "ب", "ت"].enumerated().map { index, glyph in
+        LineItem(text: words[index], wordID: index, ayah: AyahKey(surah: 1, ayah: 1), glyphs: glyph)
+    }
+    let page = MushafPage(number: 1, linesPerPage: 15, lines: [MushafLine(number: 1, kind: .ayah, isCentered: false, items: items)])
+    let style = PageStyle(calibration: 0.05, lineMetrics: LineMetrics(lineHeight: 1.8, ascent: 1.2))
+    let fonts = GlyphFonts(page: arabic, basmallah: arabic)
+    let result = PageLayoutEngine.layout(page, width: 440, font: MushafFont(name: "Courier"), style: style, glyphFonts: fonts)
+    let fontSize = (440 - 2 * style.horizontalInset) * 0.05
+    #expect(abs(result.lineHeight - 1.8 * fontSize) < 0.001)
+    #expect(abs(PageLayoutEngine.pageHeight(width: 440, linesPerPage: 15, font: arabic, style: style)
+        - (2 * style.verticalInset + 15 * 1.8 * fontSize)) < 0.001)
+    #expect(result.items.map { CTLineGetGlyphCount($0.line) } == [1, 1, 1], "each item draws its one glyph code")
+    #expect(result.items.map(\.item.text) == Array(words.prefix(3)), "the source text stays the item's identity")
+    #expect(result.diagnostics.missingGlyphs.isEmpty)
 }

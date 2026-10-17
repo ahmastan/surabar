@@ -26,16 +26,20 @@ public struct AyahKey: Hashable, Comparable, Sendable, CustomStringConvertible {
 
 /// One shaped unit on a line: a source word, or decorative text such as a surah title.
 public struct LineItem: Sendable, Hashable {
-    /// Source text, drawn exactly as given.
+    /// Source text, drawn exactly as given unless the page is drawn with glyph fonts.
     public let text: String
     /// The layout's word index, or nil for decorative items.
     public let wordID: Int?
     public let ayah: AyahKey?
+    /// Glyph codes for a page font (QCF), drawn instead of `text` when page fonts are available.
+    /// `text` remains the word's identity for copying and accessibility.
+    public let glyphs: String?
 
-    public init(text: String, wordID: Int? = nil, ayah: AyahKey? = nil) {
+    public init(text: String, wordID: Int? = nil, ayah: AyahKey? = nil, glyphs: String? = nil) {
         self.text = text
         self.wordID = wordID
         self.ayah = ayah
+        self.glyphs = glyphs
     }
 }
 

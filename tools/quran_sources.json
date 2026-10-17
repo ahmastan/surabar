@@ -40,11 +40,11 @@
   },
   "layouts": {
     "uthmani": {
-      "name": "KFGQPC Hafs, 15-line Madani",
+      "name": "KFGQPC Hafs, 15-line Madani (QCF V2)",
       "page_count": 604,
       "lines_per_page": 15,
       "verified": true,
-      "verification_note": "Line membership from QUL's Unicode 1421H layout preview (tool 27), whose words match resource 312 exactly; 15 defective preview pages patched from resource 10 (see layout.patched_pages). Owner visual acceptance is still pending.",
+      "verification_note": "Line membership from QUL resource 10 (QCF V2 1421H print), drawn with the matching QCF V2 page fonts; word ids and locations match resource 312 exactly, and every word has glyph codes from resource 61 present in its page font (checked 2026-10-16: 88,186 codes, 0 missing). Page word ranges equal the former tool 27 layout on all 604 pages. Owner visual acceptance pending.",
       "words": {
         "url": "https://qul.tarteel.ai/resources/quran-script/312",
         "path": "uthmani/qpc-hafs-word-by-word.db-extracted/qpc-hafs-word-by-word.db",
@@ -52,36 +52,35 @@
         "archive": "uthmani/qpc-hafs-word-by-word.db.zip",
         "archive_sha256": "64b59c7ae3dae32f3650c534cb5a40c91089e0a6319372ded9500181a3cc6a47"
       },
+      "glyphs": {
+        "url": "https://qul.tarteel.ai/resources/quran-script/61",
+        "path": "uthmani/qpc-v2.db-extracted/qpc-v2.db",
+        "sha256": "4bf9549dfcfd367d4d4b151bd58b51af63b677d1c980cf5e52541c2f981d7e6d",
+        "archive": "uthmani/qpc-v2.db.zip",
+        "archive_sha256": "a766a033cad47b36f00f493f5f0541d5f07e1336857eaa6feba92465af3f68bb",
+        "note": "QPC V2 Glyph - Word by Word. Glyph codes are drawn only with the page fonts; copying and accessibility use resource 312's Unicode text."
+      },
       "layout": {
-        "url": "https://qul.tarteel.ai/mushaf_layouts/27",
-        "note": "QUL offers no download for this Unicode layout. Pages 1–604 were saved from the public preview on 2026-10-15 and converted with tools/convert_qul_preview_layout.py. Replace with an official export when QUL provides one.",
-        "preview_pages": "uthmani/tool27-preview-2026-10-15",
-        "preview_pages_sha256": "fd4215fa820471b09f3c43a3efb04a323b99fabcff3e8c9754d688de536d8d0d",
-        "patched_pages": {
-          "pages": [
-            135,
-            213,
-            244,
-            276,
-            278,
-            280,
-            286,
-            303,
-            304,
-            425,
-            436,
-            468,
-            480,
-            547,
-            596
-          ],
-          "from": "resource 10 (qpc-v2-15-lines.db)",
-          "reason": "Defective preview pages: a word omitted (276, 278, 280, 286, 425, 436, 468); an empty mid-page line beside a doubled line (480, 547); surah 94's first words attached to its heading (596); words moved between adjacent lines, giving pairs such as 6/18 words where resource 10 has 12/12 (135, 213, 244, 303, 304). Each patched page covers exactly the same first and last words. Reported to QUL."
-        },
-        "convert_command": "python3 tools/convert_qul_preview_layout.py --pages tools/data/raw/uthmani/tool27-preview-2026-10-15 --words tools/data/raw/uthmani/qpc-hafs-word-by-word.db-extracted/qpc-hafs-word-by-word.db --output tools/data/raw/uthmani/kfgqpc-1421h-unicode-15-lines.db --page-count 604 --name \"KFGQPC 1421H print (Unicode text), converted from QUL tool 27 preview\" --patch-from tools/data/raw/uthmani/qpc-v2-15-lines.db-extracted/qpc-v2-15-lines.db --patch-pages 135,213,244,276,278,280,286,303,304,425,436,468,480,547,596",
-        "path": "uthmani/kfgqpc-1421h-unicode-15-lines.db",
-        "sha256": "2648f0a5af6028956db567c8bea37248e80c4e125473883d1b48b3d65e229f09",
-        "rejected_alternative": "Resource 10 for all pages: 1,694 of 9,001 lines differ in word membership from the Unicode layout."
+        "url": "https://qul.tarteel.ai/resources/mushaf-layout/10",
+        "path": "uthmani/qpc-v2-15-lines.db-extracted/qpc-v2-15-lines.db",
+        "sha256": "e4df98f35dd3b8927ff096337c8739e0f0b12c8ba622834c345eaa4c3e28dd8c",
+        "archive": "uthmani/qpc-v2-15-lines.db.zip",
+        "archive_sha256": "697cbc7f16db1f56b6d95c4d11a9eea074ad4759babd2d75abcad5738e2fdf96"
+      },
+      "page_fonts": {
+        "url": "https://qul.tarteel.ai/resources/font/249",
+        "download": "https://static-cdn.tarteel.ai/qul/fonts/quran_fonts/v2/woff2/p{page}.woff2",
+        "directory": "uthmani/qpc-v2-woff2-2026-10-16",
+        "file": "p{page}.woff2",
+        "directory_sha256": "42ba815a3a58c9e22aa31b44696a04191fee977603aa77d93b6a4f2d546a317b",
+        "downloaded": "2026-10-16",
+        "total_bytes": 97748500,
+        "format_note": "WOFF2 (about 98 MB in all) instead of TTF (about 200 MB): every glyph code used by resource 61 is present in both with identical advances and outline bounds within 0.25 font units at 100 pt. The TTFs also carry extra unused glyphs. Core Text loads WOFF2 directly.",
+        "license_status": "UNKNOWN. The fonts carry no license text (name table: 'Test Font, KFGQPC', family QCF2001..QCF2604). Not bundled; the app downloads them once. Release blocker until KFGQPC/QUL terms are confirmed.",
+        "calibration": 0.057783,
+        "line_height": 1.8,
+        "ascent": 1.2,
+        "metrics_note": "calibration from surabar-render calibrate (widest line page 568 line 2 with a 0.1 em word gap); line pitch 1.8 em and ascent 1.2 em are the largest font ascent+descent over all 604 page fonts (pending owner choice between 1.8 and 1.6)."
       },
       "font": {
         "url": "https://qul.tarteel.ai/resources/font/245",
@@ -90,7 +89,44 @@
         "sha256": "aa68bffce289b4c0ebac68e90502eb69e42356abcd1603cb2b8e99c2c723f145",
         "license_status": "Embedded KFGQPC EULA permits free use, copying, and distribution; forbids sale and modification. Bundle unmodified with the license text.",
         "font_pack_note": "The resource 245 font pack (qpc-hafs.zip, sha256 6478b46366bfd3ba075c0f6d1d9269c53373912f1df58c051e16d53555a90cba) contains only UthmanicHafs1 versions 17 and 18 and no license file; QUL's site serves version 22, which is used.",
-        "calibration": 0.044327
+        "calibration": 0.044794,
+        "role": "Fallback while the page fonts are not downloaded.",
+        "calibration_note": "UthmanicHafs V22 on resource 10's lines (widest: page 600 line 14); used only as the fallback."
+      },
+      "superseded_layout": {
+        "note": "Until 2026-10-16 the Uthmani layout was converted from QUL's tool 27 Unicode preview (15 pages patched from resource 10) and drawn with UthmanicHafs V22. Retired on the owner's approval of the QCF V2 rendering (2026-10-16); tools/convert_qul_preview_layout.py was removed and remains in Git history at commit a6809be.",
+        "previous": {
+          "url": "https://qul.tarteel.ai/mushaf_layouts/27",
+          "note": "QUL offers no download for this Unicode layout. Pages 1–604 were saved from the public preview on 2026-10-15 and converted with tools/convert_qul_preview_layout.py. Replace with an official export when QUL provides one.",
+          "preview_pages": "uthmani/tool27-preview-2026-10-15",
+          "preview_pages_sha256": "fd4215fa820471b09f3c43a3efb04a323b99fabcff3e8c9754d688de536d8d0d",
+          "patched_pages": {
+            "pages": [
+              135,
+              213,
+              244,
+              276,
+              278,
+              280,
+              286,
+              303,
+              304,
+              425,
+              436,
+              468,
+              480,
+              547,
+              596
+            ],
+            "from": "resource 10 (qpc-v2-15-lines.db)",
+            "reason": "Defective preview pages: a word omitted (276, 278, 280, 286, 425, 436, 468); an empty mid-page line beside a doubled line (480, 547); surah 94's first words attached to its heading (596); words moved between adjacent lines, giving pairs such as 6/18 words where resource 10 has 12/12 (135, 213, 244, 303, 304). Each patched page covers exactly the same first and last words. Reported to QUL."
+          },
+          "convert_command": "python3 tools/convert_qul_preview_layout.py --pages tools/data/raw/uthmani/tool27-preview-2026-10-15 --words tools/data/raw/uthmani/qpc-hafs-word-by-word.db-extracted/qpc-hafs-word-by-word.db --output tools/data/raw/uthmani/kfgqpc-1421h-unicode-15-lines.db --page-count 604 --name \"KFGQPC 1421H print (Unicode text), converted from QUL tool 27 preview\" --patch-from tools/data/raw/uthmani/qpc-v2-15-lines.db-extracted/qpc-v2-15-lines.db --patch-pages 135,213,244,276,278,280,286,303,304,425,436,468,480,547,596",
+          "path": "uthmani/kfgqpc-1421h-unicode-15-lines.db",
+          "sha256": "2648f0a5af6028956db567c8bea37248e80c4e125473883d1b48b3d65e229f09",
+          "rejected_alternative": "Resource 10 for all pages: 1,694 of 9,001 lines differ in word membership from the Unicode layout."
+        },
+        "previous_calibration": 0.044327
       }
     },
     "indopak": {
@@ -119,7 +155,8 @@
         "path": "indopak/font.ttf",
         "sha256": "a6463e24e36651404e9eff52dae26e18e9ef0718eb620636a66a20026a75c563",
         "license_status": "BLOCKED: embedded notice says not for distribution or development without written notice from QuranWBW.com.",
-        "calibration": 0.046025
+        "calibration": 0.050402,
+        "calibration_note": "Fits 99% of justified lines (surabar-render calibrate --percentile 99; at page 215 line 3); the longest 1% (89 lines) shrink to fit, by at most 9% (owner decision 2026-10-16). The widest-line value was 0.046025."
       }
     }
   },

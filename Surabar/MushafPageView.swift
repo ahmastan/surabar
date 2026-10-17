@@ -13,7 +13,8 @@ struct MushafPageView: NSViewRepresentable {
 
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
-        view.update(page: model.pageNumber, script: model.state.script, selection: model.state.selectedAyah, theme: theme)
+        view.update(page: model.pageNumber, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
+                    pageFonts: model.usesPageFonts)
     }
 }
 
@@ -35,7 +36,7 @@ final class MushafPageNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme) {
+    func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, pageFonts: Bool) {
         self.theme = theme
         relayout()
         setAccessibilityLabel("Mushaf page \(page)")

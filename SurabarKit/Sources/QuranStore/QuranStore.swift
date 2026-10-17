@@ -16,8 +16,40 @@ public struct LayoutInfo: Sendable, Hashable {
     public let pageCount: Int
     public let linesPerPage: Int
     public let verified: Bool
+    /// The single font: the layout's font, or the fallback while page fonts are not available.
     public let fontFile: String
     public let calibration: Double?
+    /// Present when the layout is drawn with one glyph font per page (QCF).
+    public let pageFonts: PageFontSettings?
+}
+
+/// How a layout's page fonts are fetched and laid out.
+public struct PageFontSettings: Sendable, Hashable {
+    /// Download URL with `{page}` in place of the page number.
+    public let urlTemplate: String
+    public let calibration: Double
+    /// Line pitch and baseline, in ems.
+    public let lineHeight: Double
+    public let ascent: Double
+
+    public init(urlTemplate: String, calibration: Double, lineHeight: Double, ascent: Double) {
+        self.urlTemplate = urlTemplate
+        self.calibration = calibration
+        self.lineHeight = lineHeight
+        self.ascent = ascent
+    }
+
+    public func url(page: Int) -> URL? {
+        URL(string: urlTemplate.replacingOccurrences(of: "{page}", with: String(page)))
+    }
+}
+
+/// One page font file, with the size and hash the download must match.
+public struct PageFontFile: Sendable, Hashable {
+    public let page: Int
+    public let file: String
+    public let bytes: Int
+    public let sha256: String
 }
 
 public struct Surah: Sendable, Hashable, Identifiable {
@@ -72,20 +104,25 @@ public final class QuranStore: Sendable {
                           revelationPlace: row[4], ayahCount: row[5])
                 }
                 let layouts = try Row.fetchAll(db, sql: """
-                    SELECT id, name, page_count, lines_per_page, verified, font_file, font_calibration
+                    SELECT id, name, page_count, lines_per_page, verified, font_file, font_calibration,
+                           page_font_url, page_font_calibration, page_font_line_height, page_font_ascent
                     FROM layouts ORDER BY id
                     """).map { row in
-                    LayoutInfo(id: row[0], name: row[1], pageCount: row[2], linesPerPage: row[3],
-                               verified: row[4], fontFile: row[5], calibration: row[6])
+                    let template: String? = row[7]
+                    return LayoutInfo(id: row[0], name: row[1], pageCount: row[2], linesPerPage: row[3],
+                                      verified: row[4], fontFile: row[5], calibration: row[6],
+                                      pageFonts: template.map {
+                                          PageFontSettings(urlTemplate: $0, calibration: row[8], lineHeight: row[9], ascent: row[10])
+                                      })
                 }
                 var basmallahs: [String: [LineItem]] = [:]
                 for layout in layouts {
                     // The source words of 1:1 in this layout, excluding its ayah-number word. Text is not modified.
-                    basmallahs[layout.id] = try String.fetchAll(db, sql: """
-                        SELECT text FROM words WHERE layout = ? AND surah = 1 AND ayah = 1 ORDER BY word
+                    basmallahs[layout.id] = try Row.fetchAll(db, sql: """
+                        SELECT text, glyph FROM words WHERE layout = ? AND surah = 1 AND ayah = 1 ORDER BY word
                         """, arguments: [layout.id])
-                        .filter(Self.containsArabicLetter)
-                        .map { LineItem(text: $0) }
+                        .filter { Self.containsArabicLetter($0[0]) }
+                        .map { LineItem(text: $0[0], glyphs: $0[1]) }
                 }
                 return (surahs, layouts, basmallahs)
             }
@@ -122,13 +159,13 @@ public final class QuranStore: Sendable {
                 """, arguments: [layout.id, number])
             guard !rows.isEmpty else { throw QuranStoreError("Page \(number) is not in layout \(layout.id)") }
             let words = try Row.fetchAll(db, sql: """
-                SELECT w.word, w.surah, w.ayah, w.text FROM words w
+                SELECT w.word, w.surah, w.ayah, w.text, w.glyph FROM words w
                 JOIN lines l ON l.layout = w.layout AND w.word BETWEEN l.first_word AND l.last_word
                 WHERE l.layout = ? AND l.page = ? ORDER BY w.word
                 """, arguments: [layout.id, number])
             var byWord: [Int: LineItem] = [:]
             for row in words {
-                byWord[row[0]] = LineItem(text: row[3], wordID: row[0], ayah: AyahKey(surah: row[1], ayah: row[2]))
+                byWord[row[0]] = LineItem(text: row[3], wordID: row[0], ayah: AyahKey(surah: row[1], ayah: row[2]), glyphs: row[4])
             }
             return MushafPage(number: number, linesPerPage: layout.linesPerPage, lines: try rows.map { row in
                 let type: String = row[1]
@@ -147,6 +184,15 @@ public final class QuranStore: Sendable {
                 }
                 return MushafLine(number: row[0], kind: kind, isCentered: row[2], items: items)
             })
+        }
+    }
+
+    /// The page fonts of a layout drawn with one font per page, in page order; empty otherwise.
+    public func pageFontFiles(of layout: LayoutInfo) throws -> [PageFontFile] {
+        try queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT page, file, bytes, sha256 FROM page_fonts WHERE layout = ? ORDER BY page",
+                             arguments: [layout.id])
+                .map { PageFontFile(page: $0[0], file: $0[1], bytes: $0[2], sha256: $0[3]) }
         }
     }
 
