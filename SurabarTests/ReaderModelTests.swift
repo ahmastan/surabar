@@ -87,8 +87,12 @@ struct ReaderModelTests {
         let copied = try #require(NSPasteboard.general.string(forType: .string))
         #expect(copied == "\(source)\n(Quran 112:1)")
         #expect(source.unicodeScalars.count > 10)
+        model.translations = TranslationLibrary(state: model.state, folder: FileManager.default.temporaryDirectory
+            .appending(path: "surabar-test-translations-\(UUID().uuidString)"))
         model.copy(ayah, withTranslation: true)
-        #expect(NSPasteboard.general.string(forType: .string)?.contains("Say, \"He is Allāh, [who is] One,") == true)
+        let withTranslation = NSPasteboard.general.string(forType: .string) ?? ""
+        #expect(withTranslation.contains("Say, \"He is Allāh, [who is] One,"), "QuranEnc's text, unmodified")
+        #expect(withTranslation.contains("(Saheeh International, QuranEnc.com v1.1.2)"))
     }
 
     @Test func everyPageLaysOutWithoutDefectsAtTheReaderWidths() throws {

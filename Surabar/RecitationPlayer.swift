@@ -75,6 +75,7 @@ final class RecitationPlayer {
         self.timings = timings
         self.audio = audio
         player.actionAtItemEnd = .pause
+        player.volume = Float(state.volume)
         // Relaunch restores the last position, paused. Playback never starts on its own.
         if let ayah = state.lastPlayedAyah, ayahCounts.indices.contains(ayah.surah - 1) {
             step = PlaybackStep(kind: .ayah, ayah: ayah, repetition: 1)
@@ -200,6 +201,11 @@ final class RecitationPlayer {
         state.speed = speed
         player.defaultRate = Float(speed)
         if player.rate != 0 { player.rate = Float(speed) }
+    }
+
+    func setVolume(_ volume: Double) {
+        state.volume = min(max(volume, 0), 1)
+        player.volume = Float(state.volume)
     }
 
     func setReciter(_ id: Int) {

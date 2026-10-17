@@ -21,8 +21,10 @@ enum DebugSnapshot {
         UserDefaults().removePersistentDomain(forName: suite)
         let state = AppState(defaults: UserDefaults(suiteName: suite)!)
         let model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
+        model.translations = TranslationLibrary(state: state, folder: FileManager.default.temporaryDirectory.appending(path: "surabar-snapshot-translations"))
         var overlay: ReaderModel.Overlay?
         var expandedJuz: Set<Int>?
+        var available = 2000.0
         for pair in (environment["SURABAR_SNAPSHOT_STATE"] ?? "").split(separator: " ") {
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
@@ -53,11 +55,17 @@ enum DebugSnapshot {
             case "range":
                 state.loopRange = ClosedRange<AyahKey>(stored: parts[1])
                 state.loopMode = .range
+            case "glass": GlassStyle(rawValue: parts[1]).map { state.glassStyle = $0 }
+            case "screen": Double(parts[1]).map { available = $0 }
             case "expand": expandedJuz = Set(parts[1].split(separator: ",").compactMap { Int($0) })
             case "loop": LoopMode(rawValue: parts[1]).map { state.loopMode = $0 }
             case "count": Int(parts[1]).map { state.repeatCount = $0 }
             case "skip": SkipUnit(rawValue: parts[1]).map { state.skipUnit = $0 }
             case "mode": state.viewMode = parts[1] == "player" ? .playerOnly : .quranAndPlayer
+            case "translations":
+                state.isShowingSettings = true
+                state.settingsTab = .reading
+                state.showsTranslations = true
             case "downloads":
                 state.isShowingSettings = true
                 state.settingsTab = .player
@@ -77,8 +85,8 @@ enum DebugSnapshot {
         }
         model.overlay = overlay
         let width = state.size.width
-        let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
-                                            showTranslation: state.showTranslation, availableHeight: 2000,
+        let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)),
+                                            showTranslation: state.showTranslation, availableHeight: available,
                                             mode: state.viewMode)
         let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {}, exportAnnotations: {}, importAnnotations: {})
         let player = model.store.map { store in
@@ -104,9 +112,12 @@ enum DebugSnapshot {
         view.layoutSubtreeIfNeeded()
         // Let SwiftUI finish a layout pass before capturing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if ProcessInfo.processInfo.environment["SURABAR_SNAPSHOT_DEBUG"] != nil {
+                print("measured settings content:", state.settingsContentHeights.map { "\($0.key.rawValue)=\($0.value)" })
+            }
             // Settings are sized to their measured content, as in the app.
             if state.isShowingSettings, let content = state.settingsContentHeights[state.settingsTab] {
-                view.setFrameSize(CGSize(width: size.width, height: ReaderLayout.settingsHeight(content: content)))
+                view.setFrameSize(CGSize(width: size.width, height: min(ReaderLayout.settingsHeight(content: content), available - ReaderLayout.screenMargin)))
                 view.layoutSubtreeIfNeeded()
             }
             view.layoutSubtreeIfNeeded()
@@ -176,6 +187,48 @@ enum DebugPlaybackProbe {
                 last = (CACurrentMediaTime() - origin, time.seconds, queue.currentItem.map(ObjectIdentifier.init))
             }
         }
+        // SURABAR_PROBE_UI=1: a hidden reader opens and closes the surah picker every 2 s meanwhile, and
+        // every stall, rate change, or ayah change is logged, with how long the main thread was blocked.
+        if ProcessInfo.processInfo.environment["SURABAR_PROBE_UI"] != nil {
+            let model = ReaderModel(state: state, library: .success(library))
+            model.annotations = try? AnnotationStore(inMemory: true)
+            player.onAyahChange = { [onAyahChange = player.onAyahChange] ayah in onAyahChange?(ayah); model.followPlayback(to: ayah) }
+            let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {}, exportAnnotations: {}, importAnnotations: {})
+            let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, downloads: nil, actions: actions))
+            view.frame = CGRect(x: 0, y: 0, width: 440, height: 900)
+            let window = NSWindow(contentRect: CGRect(x: -20_000, y: -20_000, width: 440, height: 900), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.contentView = view
+            window.orderFrontRegardless()
+            var juz = false
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    let start = CACurrentMediaTime()
+                    if model.overlay == nil {
+                        model.overlay = .surahPicker
+                        juz.toggle()
+                    } else {
+                        model.overlay = nil
+                    }
+                    view.layoutSubtreeIfNeeded()
+                    view.display()
+                    print(String(format: "  [ui] picker %@ (main thread busy %.0f ms)", model.overlay == nil ? "closed" : "opened",
+                                 (CACurrentMediaTime() - start) * 1000))
+                }
+            }
+            NotificationCenter.default.addObserver(forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main) { _ in
+                print("  [audio] STALLED")
+            }
+            var lastControl = queue.timeControlStatus
+            Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    if queue.timeControlStatus != lastControl {
+                        print("  [audio] timeControlStatus \(lastControl.rawValue) -> \(queue.timeControlStatus.rawValue) (reason: \(queue.reasonForWaitingToPlay?.rawValue ?? "-"))")
+                        lastControl = queue.timeControlStatus
+                    }
+                }
+            }
+        }
         player.play(from: ayah)
         print("playing reciter \(state.reciterID) from \(ayah) for \(Int(seconds)) s (muted)")
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
@@ -186,5 +239,142 @@ enum DebugPlaybackProbe {
         return true
     }
 }
-#endif
+/// Debug builds only: measures the Phase 8 performance targets and prints a report.
+///
+///     SURABAR_BENCHMARK=1 Surabar.app/Contents/MacOS/Surabar
+///
+/// Build with optimisation for representative numbers:
+/// `xcodebuild … -configuration Debug SWIFT_OPTIMIZATION_LEVEL=-O build`.
+@MainActor
+enum DebugBenchmark {
+    /// Memory in MB: the physical footprint (what Activity Monitor shows as Memory) and resident size
+    /// (which also counts shared system framework pages).
+    static func memory() -> (footprint: Double, resident: Double) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        _ = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return (Double(info.phys_footprint) / 1_048_576, Double(info.resident_size) / 1_048_576)
+    }
 
+    static func residentMB() -> Double { memory().footprint }
+
+    static func runIfRequested() -> Bool {
+        guard ProcessInfo.processInfo.environment["SURABAR_BENCHMARK"] != nil else { return false }
+        var stages: [String] = [String(format: "launch %.0f", residentMB())]
+        let suite = "io.github.ahmastan.surabar.benchmark"
+        UserDefaults().removePersistentDomain(forName: suite)
+        let state = AppState(defaults: UserDefaults(suiteName: suite)!)
+        let model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
+        model.translations = TranslationLibrary(state: state, folder: FileManager.default.temporaryDirectory.appending(path: "surabar-bench"))
+        model.annotations = try? AnnotationStore(inMemory: true)
+        let width = state.size.width
+        let size = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)), showTranslation: true,
+                                            availableHeight: 1000)
+        let player = model.store.map { store in
+            RecitationPlayer(state: state, ayahCounts: store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled(),
+                             timings: TimingsStore(ayahCounts: store.surahs.map(\.ayahCount)),
+                             audio: AudioCache(root: FileManager.default.temporaryDirectory.appending(path: "surabar-bench-audio")))
+        }
+        let actions = ReaderActions(detach: {}, attach: {}, editCustomAccent: {}, exportAnnotations: {}, importAnnotations: {})
+        let window = NSWindow(contentRect: CGRect(x: -20_000, y: -20_000, width: size.width, height: size.height),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.orderFrontRegardless()
+
+        /// The reader's content appearing: a new hosting view laid out and drawn, as when the popover opens.
+        func openReader() -> Double {
+            let start = CACurrentMediaTime()
+            let view = NSHostingView(rootView: ReaderView(state: state, model: model, player: player, downloads: nil, actions: actions))
+            view.frame = CGRect(origin: .zero, size: size)
+            window.contentView = view
+            view.layoutSubtreeIfNeeded()
+            view.display()
+            return (CACurrentMediaTime() - start) * 1000
+        }
+        stages.append(String(format: "data loaded %.0f", residentMB()))
+        /// The surah picker appearing (surahs, then juz), as when its button is clicked.
+        func openPicker(juz: Bool) -> Double {
+            let start = CACurrentMediaTime()
+            var picker = SurahPicker(model: model, palette: ReaderPalette(state: state), downloads: nil, reciter: nil)
+            // The picker opens over a window that is key, as in the app, so the search field takes focus.
+            window.makeKey()
+            if juz { picker.debugExpandedJuz = [] }
+            let view = NSHostingView(rootView: picker.frame(width: size.width, height: 600))
+            view.frame = CGRect(x: 0, y: 0, width: size.width, height: 600)
+            window.contentView = view
+            view.layoutSubtreeIfNeeded()
+            view.display()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            view.layoutSubtreeIfNeeded()
+            view.display()
+            return (CACurrentMediaTime() - start) * 1000
+        }
+        let pickers = (surahs: (0 ..< 3).map { _ in openPicker(juz: false) }, juz: (0 ..< 3).map { _ in openPicker(juz: true) })
+        let cold = openReader()
+        stages.append(String(format: "reader shown %.0f", residentMB()))
+        let warm = (0 ..< 5).map { _ in openReader() }
+        stages.append(String(format: "reader reopened 5× %.0f", residentMB()))
+
+        /// A page turn: the new page laid out (with its page font) and drawn, at the reader's size.
+        let pageSize = CGSize(width: width, height: model.pageHeight(width: width))
+        let context = CGContext(data: nil, width: Int(pageSize.width * 2), height: Int(pageSize.height * 2), bitsPerComponent: 8,
+                                bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.scaleBy(x: 2, y: 2)
+        var turns: [Double] = []
+        var parts: [(font: Double, layout: Double, draw: Double)] = []
+        var redraws: [Double] = []
+        model.goToPage(1)
+        for _ in 0 ..< 120 {
+            // Each turn is its own event in the app, which drains the autorelease pool.
+            let elapsed = autoreleasepool {
+                let start = CACurrentMediaTime()
+                model.turnPage(1)
+                _ = model.currentPageFonts?.glyphFonts(page: model.pageNumber)
+                let fonts = CACurrentMediaTime()
+                let layout = model.pageLayout(fitting: pageSize)
+                let laidOut = CACurrentMediaTime()
+                if let layout { PageRenderer.draw(layout, in: context) }
+                let end = CACurrentMediaTime()
+                if let layout { PageRenderer.draw(layout, in: context) }
+                redraws.append((CACurrentMediaTime() - end) * 1000)
+                parts.append(((fonts - start) * 1000, (laidOut - fonts) * 1000, (end - laidOut) * 1000))
+                return (end - start) * 1000
+            }
+            turns.append(elapsed)
+            model.prepareNeighbours(fitting: pageSize, scale: 2)
+            if turns.count % 40 == 0 { stages.append(String(format: "%d pages %.0f", turns.count, residentMB())) }
+            // Reading pace: neighbouring page fonts load in the background meanwhile.
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        func sysctl(_ name: String) -> String {
+            var size = 0
+            sysctlbyname(name, nil, &size, nil, 0)
+            var value = [CChar](repeating: 0, count: size)
+            sysctlbyname(name, &value, &size, nil, 0)
+            return String(decoding: value.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        }
+        func percentile(_ values: [Double], _ p: Double) -> Double {
+            let sorted = values.sorted()
+            return sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))]
+        }
+        let sortedTurns = turns.sorted()
+        print("hardware: \(sysctl("hw.model")), \(sysctl("machdep.cpu.brand_string")), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        print("page fonts: \(model.usesPageFonts ? "QCF V2 (downloaded)" : "fallback font")")
+        print(String(format: "surah picker open: %@ ms; juz list: %@ ms", pickers.surahs.map { String(format: "%.0f", $0) }.joined(separator: ", "),
+                     pickers.juz.map { String(format: "%.0f", $0) }.joined(separator: ", ")))
+        print(String(format: "reader open: cold %.1f ms, warm median %.1f ms (max %.1f)", cold, percentile(warm, 0.5), warm.max() ?? 0))
+        print(String(format: "page turn (120 pages): median %.2f ms, p95 %.2f ms, max %.2f ms", percentile(turns, 0.5),
+                     percentile(turns, 0.95), sortedTurns.last ?? 0))
+        print(String(format: "  of which (median): page font %.2f ms, layout %.2f ms, drawing %.2f ms",
+                     percentile(parts.map(\.font), 0.5), percentile(parts.map(\.layout), 0.5), percentile(parts.map(\.draw), 0.5)))
+        print(String(format: "  the same page drawn again: median %.2f ms", percentile(redraws, 0.5)))
+        let memory = memory()
+        print(String(format: "memory: footprint %.0f MB (Activity Monitor), resident %.0f MB", memory.footprint, memory.resident))
+        print("footprint by stage (MB): " + stages.joined(separator: ", "))
+        exit(0)
+    }
+}
+#endif

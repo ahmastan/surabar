@@ -18,7 +18,6 @@ struct SurahPicker: View {
     /// For snapshots: open on the juz list with these juz expanded.
     var debugExpandedJuz: Set<Int>?
     #endif
-    @FocusState private var searchFocused: Bool
 
     enum Mode: String, CaseIterable {
         case surahs = "Surahs", juz = "Juz"
@@ -31,9 +30,10 @@ struct SurahPicker: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            // Not focused on opening: the first focus of a text field starts macOS's text input services
+            // (predictive text), a moment of heavy work that made recitation crackle.
             TextField(mode == .surahs ? "Search surahs" : "Juz number", text: $query)
                 .textFieldStyle(.roundedBorder)
-                .focused($searchFocused)
                 .onSubmit(openFirst)
             // Each list has its own scroll view and row IDs ("surah-2", "juz-2"), so switching tabs never
             // reuses the other list's rows.
@@ -63,9 +63,7 @@ struct SurahPicker: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(palette.chrome)
         .onAppear {
-            searchFocused = true
             #if DEBUG
             if let debugExpandedJuz {
                 mode = .juz
@@ -234,8 +232,7 @@ struct JumpBox: View {
             }
         }
         .padding(10)
-        .background(palette.chrome, in: RoundedRectangle(cornerRadius: 10))
-        .shadow(color: .black.opacity(framed ? 0.18 : 0), radius: 12, y: 4)
+        .modifier(OptionalSurface(palette: palette, framed: framed))
         .onAppear { focused = true }
     }
 
@@ -243,5 +240,19 @@ struct JumpBox: View {
         guard let store = model.store, let layout = model.layout else { return [] }
         return JumpQuery.suggestions(for: query, currentSurah: model.currentSurah?.number ?? 1, surahs: store.surahs,
                                      pageCount: layout.pageCount)
+    }
+}
+
+/// A floating card's glass (or frosted) surface; none inside a popover, which has its own.
+struct OptionalSurface: ViewModifier {
+    let palette: ReaderPalette
+    let framed: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if framed {
+            content.surface(palette.glass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else {
+            content
+        }
     }
 }

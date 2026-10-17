@@ -12,6 +12,9 @@ final class ReaderController: NSObject {
     private let downloads: DownloadCenter?
     private let popover = NSPopover()
     private var panel: NSPanel?
+    /// The detached window's content, inside its backdrop.
+    private var panelHost: NSHostingController<ReaderView>?
+    private var appliedBackdrop: Bool?
     private weak var anchor: NSStatusBarButton?
 
     private static let frameName = "SurabarReaderWindow"
@@ -45,7 +48,7 @@ final class ReaderController: NSObject {
         if state.isDetached {
             if let panel, panel.isVisible, panel.isKeyWindow { panel.orderOut(nil) } else { showPanel() }
         } else if popover.isShown {
-            popover.performClose(nil)
+            closePopover()
         } else {
             showPopover(from: button)
         }
@@ -64,12 +67,12 @@ final class ReaderController: NSObject {
     }
 
     func close() {
-        popover.performClose(nil)
+        closePopover()
         panel?.orderOut(nil)
     }
 
     func detach() {
-        popover.performClose(nil)
+        closePopover()
         state.isDetached = true
         showPanel()
     }
@@ -83,7 +86,25 @@ final class ReaderController: NSObject {
     private func showPopover(from button: NSStatusBarButton) {
         resizePopover(for: button)
         NSApp.activate()
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Opened from the global shortcut, Surabar is not the active app yet: show the popover once the
+        // activation request has been handled, and give it keyboard focus.
+        DispatchQueue.main.async { [self] in
+            guard !popover.isShown else { return }
+            openedAt = CACurrentMediaTime()
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }
+    }
+
+    /// When the popover last opened, to ignore a stray close in the moment after (see `popoverShouldClose`).
+    private var openedAt = 0.0
+    /// Set while Surabar itself closes the popover (Esc, the shortcut, the menu bar icon, detaching).
+    private var closingOnPurpose = false
+
+    private func closePopover() {
+        closingOnPurpose = true
+        popover.performClose(nil)
+        closingOnPurpose = false
     }
 
     private func showPanel() {
@@ -112,7 +133,7 @@ final class ReaderController: NSObject {
         let screen = button?.window?.screen ?? NSScreen.main
         let available = screen.map { Double($0.visibleFrame.height) } ?? 900
         let width = state.size.width
-        popover.contentSize = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: width),
+        popover.contentSize = ReaderLayout.popoverSize(width: width, pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)),
                                                        showTranslation: state.showTranslation, availableHeight: available,
                                                        mode: state.viewMode, settingsContentHeight: settingsContentHeight)
     }
@@ -124,18 +145,42 @@ final class ReaderController: NSObject {
         guard let panel else { return }
         panel.appearance = appearance
         panel.level = state.keepOnTop ? .floating : .normal
+        applyBackdrop(to: panel)
         panel.isFloatingPanel = state.keepOnTop
         fitPanelToContent(panel)
         if !panel.isVisible { return }
-        // Choosing a size in the menu or Settings resizes the detached window to that width.
-        var frame = panel.frame
-        let target = state.size.width
-        if abs(panel.contentLayoutRect.width - target) > 0.5, lastAppliedSize != state.size {
-            let delta = target - panel.contentLayoutRect.width
-            frame.size.width += delta
-            panel.setFrame(frame, display: true, animate: true)
+        // Choosing a size in the menu or Settings resizes the detached window to that width, and to the
+        // page's height at it.
+        if lastAppliedSize != state.size, abs(panel.contentLayoutRect.width - state.size.width) > 0.5 {
+            var content = NSSize(width: state.size.width, height: panel.contentLayoutRect.height)
+            if showsPage { content.height = pageFittedHeight(width: content.width) }
+            setContentSize(content, of: panel)
         }
         lastAppliedSize = state.size
+    }
+
+    /// Whether the detached window shows the mushaf page (not Settings or "Player only").
+    private var showsPage: Bool {
+        state.viewMode == .quranAndPlayer && !state.isShowingSettings
+    }
+
+    /// The window height at which the page fills `width` with only its small side margins.
+    private func pageFittedHeight(width: Double) -> Double {
+        ReaderLayout.preferredHeight(pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)), showTranslation: state.showTranslation)
+    }
+
+    /// Sets the content size, keeping the top edge in place, within the visible screen.
+    private func setContentSize(_ size: NSSize, of panel: NSPanel) {
+        let titlebar = panel.frame.height - panel.contentLayoutRect.height
+        var frame = panel.frame
+        frame.origin.y = frame.maxY - (size.height + titlebar)
+        frame.size = NSSize(width: size.width, height: size.height + titlebar)
+        if let visible = panel.screen?.visibleFrame {
+            frame.size.height = min(frame.height, visible.height)
+            frame.origin.y = max(frame.origin.y, visible.minY)
+            frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
+        }
+        panel.setFrame(frame, display: true, animate: panel.isVisible)
     }
 
     private var lastAppliedSize: ReaderSize?
@@ -199,7 +244,8 @@ final class ReaderController: NSObject {
         withObservationTracking {
             // Page fonts change the page's height once they are downloaded.
             _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts,
-                 state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights, state.showsDownloads)
+                 state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights, state.showsDownloads,
+                 state.glassStyle)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()
@@ -226,15 +272,18 @@ final class ReaderController: NSObject {
 
     private func makePanel() -> NSPanel {
         let width = state.size.width
-        let height = ReaderLayout.preferredHeight(pageHeight: model.pageHeight(width: width), showTranslation: state.showTranslation)
+        let height = ReaderLayout.preferredHeight(pageHeight: model.pageHeight(width: ReaderLayout.pageWidth(width)), showTranslation: state.showTranslation)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-                            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+                            styleMask: [.titled, .closable, .resizable, .utilityWindow, .fullSizeContentView],
                             backing: .buffered, defer: false)
         panel.title = "Surabar"
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.fullScreenAuxiliary]
-        panel.contentViewController = makeHost()
+        panelHost = makeHost()
+        applyBackdrop(to: panel)
         panel.delegate = self
         lastAppliedSize = state.size
         if !panel.setFrameUsingName(Self.frameName) || !Self.isOnScreen(panel.frame) {
@@ -251,6 +300,37 @@ final class ReaderController: NSObject {
         fitPanelToContent(panel)
         return panel
     }
+
+    /// The detached window's backdrop: Apple's glass view (`NSGlassEffectView`) for Liquid Glass, or a
+    /// standard frosted material. The window itself is transparent around it.
+    private func applyBackdrop(to panel: NSPanel) {
+        guard let host = panelHost else { return }
+        let glass = state.glassStyle.usesGlass
+        guard appliedBackdrop != glass else { return }
+        appliedBackdrop = glass
+        host.view.removeFromSuperview()
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        if #available(macOS 26.0, *), glass {
+            let backdrop = NSGlassEffectView()
+            backdrop.style = .regular
+            backdrop.cornerRadius = Self.windowCornerRadius
+            backdrop.contentView = host.view
+            panel.contentView = backdrop
+        } else {
+            let backdrop = NSVisualEffectView()
+            backdrop.material = .popover
+            backdrop.blendingMode = .behindWindow
+            backdrop.state = .active
+            host.view.frame = backdrop.bounds
+            host.view.autoresizingMask = [.width, .height]
+            backdrop.addSubview(host.view)
+            panel.contentView = backdrop
+        }
+    }
+
+    /// The corner radius of macOS 26 titled windows, so the glass meets the window's edge.
+    private static let windowCornerRadius = 16.0
 
     private func placeNearStatusItem(_ panel: NSPanel) {
         guard let screen = anchor?.window?.screen ?? NSScreen.main else { panel.center(); return }
@@ -272,6 +352,18 @@ final class ReaderController: NSObject {
 extension ReaderController: NSPopoverDelegate {
     func popoverWillShow(_ notification: Notification) {
         applyWindowSettings()
+    }
+
+    /// A transient popover closes when something outside it is used. Opened from the global shortcut,
+    /// the activation that follows could close it at once, so closes Surabar did not ask for are ignored
+    /// for a moment after it opens.
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        let justOpened = CACurrentMediaTime() - openedAt < 0.3
+        #if DEBUG
+        print("Surabar: popover close requested (\(closingOnPurpose ? "by Surabar" : "by the system")"
+              + "\(justOpened ? ", just opened" : ""); app active: \(NSApp.isActive))")
+        #endif
+        return closingOnPurpose || !justOpened
     }
 
     /// The reader always reopens on the mushaf rather than in Settings.

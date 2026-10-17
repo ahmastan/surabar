@@ -4,9 +4,9 @@ An open-source macOS menu bar Quran reader, being built around authentic mushaf 
 
 ## Development status
 
-Surabar is in early development. The menu bar app has an offline mushaf reader (Uthmani and IndoPak pages), recitation from continuous surah recordings that follows along ayah by ayah, loops (ayah, surah, page, or a range of ayahs), recitations saved for offline listening and downloadable by surah or juz, media-key and Now Playing support, and bookmarks, highlights, and notes with JSON backup. The repository also contains source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
+Surabar is in early development. The menu bar app has an offline mushaf reader (Uthmani and IndoPak pages), recitation from continuous surah recordings that follows along ayah by ayah, loops (ayah, surah, page, or a range of ayahs), recitations saved for offline listening and downloadable by surah or juz, media-key and Now Playing support, bookmarks, highlights, and notes with JSON backup, translations from QuranEnc.com (76 in 56 languages), a global shortcut, and launch at login. The repository also contains source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
 
-Still planned: downloadable translations, a global shortcut and launch at login, accessibility and performance work, and a visual refresh. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
+Still planned: a visual refresh with smoother animations. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
 
 ## Working with source data
 
@@ -25,7 +25,7 @@ The tool reports SHA-256 hashes and JSON/SQLite structure without rewriting the 
 Requirements: macOS 14 or later, Xcode 16 or later, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml` and is not committed. Generate it once after cloning, and again only when `project.yml` changes; Xcode picks up added and removed source files by itself.
 
 ```sh
-python3 tools/prepare_app_resources.py   # builds the Quran database and gathers fonts and translation
+python3 tools/prepare_app_resources.py   # builds the Quran database and gathers fonts and the default translation
 xcodegen generate
 open Surabar.xcodeproj
 ```

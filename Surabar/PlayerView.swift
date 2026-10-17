@@ -12,7 +12,12 @@ struct PlayerView: View {
     var body: some View {
         VStack(spacing: 4) {
             progress.frame(height: 14)
-            transport.frame(height: 40)
+            // The transport centred, the volume at the right end, as in Music's player.
+            ZStack(alignment: .trailing) {
+                transport.frame(maxWidth: .infinity)
+                VolumeControl(player: player, state: model.state, palette: palette).frame(height: 30)
+            }
+            .frame(height: 40)
             HStack(spacing: 6) {
                 OptionMenu(label: "Reciter", value: player.reciter.displayName, palette: palette, sections: [
                     OptionSection(title: "Reciter", items: player.reciters.map { reciter in
@@ -65,12 +70,15 @@ struct PlayerView: View {
         let unit = model.state.skipUnit
         let back = model.skipTarget(from: position, direction: -1, unit: unit)
         let forward = model.skipTarget(from: position, direction: 1, unit: unit)
+        // Two clusters either side of a prominent play button, as in Music's player on macOS 26.
         return HStack(spacing: 10) {
-            transportButton(skipBackLabel(target: back), symbol: "backward.end.fill", size: 13, disabled: back == nil) {
-                if let back { player.skip(to: back) }
-            }
-            transportButton("Previous ayah (⌥→)", symbol: "backward.fill", size: 15) {
-                player.stepAyah(-1, from: model.state.selectedAyah)
+            ControlCluster(style: palette.glass) {
+                transportButton(skipBackLabel(target: back), symbol: "backward.end.fill", size: 12, disabled: back == nil) {
+                    if let back { player.skip(to: back) }
+                }
+                transportButton("Previous ayah (⌥→)", symbol: "backward.fill", size: 14) {
+                    player.stepAyah(-1, from: model.state.selectedAyah)
+                }
             }
             Button {
                 player.togglePlayPause(startingAt: model.state.selectedAyah)
@@ -78,19 +86,23 @@ struct PlayerView: View {
                 Image(systemName: player.isActive ? "pause.fill" : "play.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(palette.onAccent)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(palette.accent))
-                    .opacity(player.status == .loading ? 0.75 : 1)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 40, height: 40)
+                    .opacity(player.status == .loading ? 0.7 : 1)
                     .contentShape(Circle())
+                    // Tinted, interactive glass marks the main action.
+                    .surface(palette.glass, in: Circle(), interactive: true, tint: palette.accent)
             }
             .buttonStyle(.plain)
             .help("Play or pause (Space)")
             .accessibilityLabel(player.isActive ? "Pause" : "Play")
-            transportButton("Next ayah (⌥←)", symbol: "forward.fill", size: 15) {
-                player.stepAyah(1, from: model.state.selectedAyah)
-            }
-            transportButton("Next \(unit.title.lowercased()) (⌘←)", symbol: "forward.end.fill", size: 13, disabled: forward == nil) {
-                if let forward { player.skip(to: forward) }
+            ControlCluster(style: palette.glass) {
+                transportButton("Next ayah (⌥←)", symbol: "forward.fill", size: 14) {
+                    player.stepAyah(1, from: model.state.selectedAyah)
+                }
+                transportButton("Next \(unit.title.lowercased()) (⌘←)", symbol: "forward.end.fill", size: 12, disabled: forward == nil) {
+                    if let forward { player.skip(to: forward) }
+                }
             }
         }
     }
@@ -108,11 +120,10 @@ struct PlayerView: View {
     private func transportButton(_ label: String, symbol: String, size: CGFloat, disabled: Bool = false,
                                  action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size)).frame(width: 30, height: 30).contentShape(Rectangle())
+            Image(systemName: symbol).font(.system(size: size))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ClusterButtonStyle(width: 34, height: 30))
         .disabled(disabled)
-        .opacity(disabled ? 0.35 : 1)
         .help(label)
         .accessibilityLabel(label)
     }
@@ -138,6 +149,7 @@ struct LoopControl: View {
                     Text("LOOP").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(palette.secondary)
                     HStack(spacing: 4) {
                         Image(systemName: state.loopMode == .ayah ? "repeat.1" : state.loopMode == .range ? "arrow.left.and.right" : "repeat")
+                            .contentTransition(.symbolEffect(.replace))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(state.loopMode == .off ? palette.secondary : palette.accent)
                         Text(value).font(.caption.weight(.semibold)).lineLimit(1)
@@ -165,7 +177,7 @@ struct LoopControl: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .background(RoundedRectangle(cornerRadius: 7).strokeBorder(palette.secondary.opacity(0.35)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
         .contextMenu {
             ForEach(sections) { section in
                 Section(section.title) {
@@ -209,8 +221,58 @@ struct LoopControl: View {
     }
 }
 
-/// "Player only": the recited (or next) ayah's surah and number, and its Arabic text on one line,
-/// scrolling when it is longer than the window.
+/// The recitation's loudness: a speaker showing the level, which opens a slider.
+struct VolumeControl: View {
+    let player: RecitationPlayer
+    let state: AppState
+    let palette: ReaderPalette
+    @State private var isOpen = false
+
+    var body: some View {
+        Button { isOpen.toggle() } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(ClusterButtonStyle(width: 32, height: 30))
+        .help("Volume: \(Int((state.volume * 100).rounded())) %")
+        .accessibilityLabel("Volume")
+        .accessibilityValue("\(Int((state.volume * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: player.setVolume(state.volume + 0.1)
+            case .decrement: player.setVolume(state.volume - 0.1)
+            @unknown default: break
+            }
+        }
+        .popover(isPresented: $isOpen, arrowEdge: .top) {
+            HStack(spacing: 10) {
+                Button { player.setVolume(state.volume > 0 ? 0 : 1) } label: {
+                    Image(systemName: state.volume > 0 ? "speaker.fill" : "speaker.slash.fill").frame(width: 18)
+                }
+                .buttonStyle(.plain)
+                .help(state.volume > 0 ? "Mute" : "Unmute")
+                Slider(value: Binding(get: { state.volume }, set: { player.setVolume($0) }), in: 0 ... 1)
+                    .frame(width: 160)
+                    .accessibilityLabel("Volume")
+                Text("\(Int((state.volume * 100).rounded())) %").font(.caption).monospacedDigit().frame(width: 38, alignment: .trailing)
+            }
+            .padding(12)
+            .tint(palette.accent)
+        }
+    }
+
+    private var symbol: String {
+        switch state.volume {
+        case ..<0.01: "speaker.slash.fill"
+        case ..<0.34: "speaker.wave.1.fill"
+        case ..<0.67: "speaker.wave.2.fill"
+        default: "speaker.wave.3.fill"
+        }
+    }
+}
+
+/// "Player only": the recited (or next) ayah's surah and number.
 struct NowPlayingCard: View {
     let player: RecitationPlayer
     let model: ReaderModel
@@ -219,14 +281,10 @@ struct NowPlayingCard: View {
     var body: some View {
         let ayah = player.ayah ?? model.state.selectedAyah
         let basmalah = player.step?.kind == .basmalah
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(model.store?.surah(ayah.surah)?.nameSimple ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(detail(ayah, basmalah: basmalah)).font(.caption).foregroundStyle(palette.secondary).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            ArabicMarquee(text: arabic(ayah, basmalah: basmalah), font: arabicFont)
-                .frame(height: 30)
+        HStack(alignment: .firstTextBaseline) {
+            Text(model.store?.surah(ayah.surah)?.nameSimple ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
+            Text(detail(ayah, basmalah: basmalah)).font(.caption).foregroundStyle(palette.secondary).lineLimit(1)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -240,60 +298,6 @@ struct NowPlayingCard: View {
             text += model.state.repeatCount == 0 ? " · repeat \(step.repetition)" : " · \(step.repetition) of \(model.state.repeatCount)"
         }
         return text
-    }
-
-    /// The source text for the layout being read; the basmalah is Al-Fatihah's first ayah.
-    private func arabic(_ ayah: AyahKey, basmalah: Bool) -> String {
-        guard let store = model.store, let layout = model.layout else { return "" }
-        return (try? store.text(of: basmalah ? AyahKey(surah: 1, ayah: 1) : ayah, in: layout)) ?? ""
-    }
-
-    private var arabicFont: Font {
-        model.font.map { Font($0.sized(21)) } ?? .title3
-    }
-}
-
-/// One line of text that scrolls from its start (the right, for Arabic) to its end and back when it is
-/// too long to fit. With Reduce Motion it stays still.
-struct ArabicMarquee: View {
-    let text: String
-    let font: Font
-    @State private var textWidth: CGFloat = 0
-    @State private var boxWidth: CGFloat = 0
-    @State private var offset: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let overflow = max(textWidth - boxWidth, 0)
-        GeometryReader { geometry in
-            Text(text)
-                .font(font)
-                .lineLimit(1)
-                .fixedSize()
-                .background(GeometryReader { Color.clear.preference(key: MarqueeWidth.self, value: $0.size.width) })
-                .offset(x: offset)
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .trailing)
-                .onAppear { boxWidth = geometry.size.width }
-                .onChange(of: geometry.size.width) { boxWidth = geometry.size.width }
-        }
-        .clipped()
-        .onPreferenceChange(MarqueeWidth.self) { width in MainActor.assumeIsolated { textWidth = width } }
-        .task(id: "\(text)|\(Int(overflow))|\(reduceMotion)") {
-            offset = 0
-            guard overflow > 1, !reduceMotion else { return }
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            withAnimation(.linear(duration: Double(overflow) / 28).delay(0.5).repeatForever(autoreverses: true)) { offset = overflow }
-        }
-        .accessibilityLabel(text)
-    }
-}
-
-private struct MarqueeWidth: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
@@ -330,9 +334,9 @@ struct OptionMenu: View {
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(palette.secondary)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 7).strokeBorder(palette.secondary.opacity(0.35)))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -406,6 +410,7 @@ struct ProgressBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(palette.secondary.opacity(0.25)).frame(height: 3)
                 Capsule().fill(palette.accent).frame(width: geometry.size.width * min(max(fraction, 0), 1), height: 3)
+                    .animation(.linear(duration: 0.1), value: fraction)
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -413,7 +418,15 @@ struct ProgressBar: View {
         }
         .frame(height: 12)
         .accessibilityElement()
-        .accessibilityLabel("Playback position")
+        .accessibilityLabel("Position in the ayah")
         .accessibilityValue("\(Int(fraction * 100)) percent")
+        // VoiceOver: step through the ayah a tenth at a time.
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: seek(min(fraction + 0.1, 0.99))
+            case .decrement: seek(max(fraction - 0.1, 0))
+            @unknown default: break
+            }
+        }
     }
 }

@@ -24,6 +24,10 @@ settings:
 packages:
   SurabarKit:
     path: SurabarKit
+  # Approved dependency: the user-configurable global shortcut that opens Surabar.
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 3.1.0
 
 targets:
   Surabar:
@@ -42,6 +46,7 @@ targets:
         product: Recitation
       - package: SurabarKit
         product: Annotations
+      - package: KeyboardShortcuts
     settings:
       base:
         PRODUCT_NAME: Surabar
@@ -50,6 +55,9 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Surabar
+        # The app icon is the Icon Composer file Surabar/AppIcon.icon (Liquid Glass on macOS 26;
+        # Xcode also generates the icon for earlier macOS versions).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Menu bar only: no Dock icon or app menu.
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books

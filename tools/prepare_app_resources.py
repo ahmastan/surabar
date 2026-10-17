@@ -2,7 +2,7 @@
 """Generate the Quran data the app bundles, into Surabar/Resources/Bundled (Python standard library).
 
 Builds and verifies the Quran database from tools/quran_sources.json and copies each layout's
-font and the translation beside it. The output folder is ignored by Git: redistribution of
+font and the default translation (QuranEnc.com) beside it. The output folder is ignored by Git: redistribution of
 these assets is still under review. Xcode bundles whatever is in the folder; without it the
 app builds and explains that the data is missing.
 """
@@ -37,9 +37,17 @@ def main() -> int:
             source = build_quran_db.resolve(font, raw, f"{layout} font")
             # The database records the font by file name; keep names distinct per layout.
             shutil.copyfile(source, args.output / Path(font["path"]).name)
-        translation = manifest["translations"]["en.sahih"]
+        # The default translation: QuranEnc's SQLite file, unmodified, with what the app shows about it.
+        key, translation = next(iter(manifest["translations"].items()))
         source = build_quran_db.resolve(translation, raw, "translation")
-        shutil.copyfile(source, args.output / "translation-en-sahih.json")
+        shutil.copyfile(source, args.output / "translation.sqlite")
+        info = {field: translation[field] for field in
+                ("source", "title", "display_name", "description", "language", "direction", "version", "last_update")}
+        (args.output / "translation.json").write_text(json.dumps({"key": key, **info}, ensure_ascii=False, indent=2) + "\n",
+                                                      encoding="utf-8")
+        stale = args.output / "translation-en-sahih.json"
+        if stale.exists():
+            stale.unlink()
     except build_quran_db.SourceError as error:
         errors.append(str(error))
     for error in errors:

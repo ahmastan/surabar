@@ -7,15 +7,18 @@ struct ReaderPalette {
     let theme: ReaderTheme
     let accentChoice: ReaderAccent
     let customAccent: AccentRGB
+    /// Liquid Glass or frosted surfaces for controls and overlays.
+    let glass: GlassStyle
 
-    init(theme: ReaderTheme, accent: ReaderAccent = .system, customAccent: AccentRGB = .default) {
+    init(theme: ReaderTheme, accent: ReaderAccent = .system, customAccent: AccentRGB = .default, glass: GlassStyle = .system) {
         self.theme = theme
         accentChoice = accent
         self.customAccent = customAccent
+        self.glass = glass
     }
 
     @MainActor init(state: AppState) {
-        self.init(theme: state.theme, accent: state.accent, customAccent: state.customAccent)
+        self.init(theme: state.theme, accent: state.accent, customAccent: state.customAccent, glass: state.glassStyle)
     }
 
     /// Sepia's own accent, used there when the accent follows the system.

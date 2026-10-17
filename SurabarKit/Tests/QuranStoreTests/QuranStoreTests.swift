@@ -109,3 +109,43 @@ private func makeFixture() throws -> URL {
         try QuranStore(url: URL(fileURLWithPath: "/nonexistent/quran.sqlite"))
     }
 }
+
+private func makeTranslationFixture(ayahs: Int) throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("surabar-translation-\(UUID().uuidString).sqlite")
+    let queue = try DatabaseQueue(path: url.path)
+    try queue.write { db in
+        try db.execute(sql: """
+            CREATE TABLE "translations" ("id" INTEGER NOT NULL, "sura" INTEGER, "aya" INTEGER, "translation" TEXT,
+                                         "footnotes" TEXT, PRIMARY KEY("id"))
+            """)
+        for id in 1 ... ayahs {
+            try db.execute(sql: "INSERT INTO translations VALUES (?, 1, ?, ?, ?)",
+                           arguments: [id, id, "(\(id)) Text \(id)[1]", id == 2 ? "[1]- A note." : nil])
+        }
+    }
+    return url
+}
+
+@Test func readsQuranEncTranslationsUnmodified() throws {
+    let info = TranslationInfo(key: "english_test", title: "English Translation - Test Center", description: "Test.",
+                               language: "en", direction: "ltr", version: "1.0.2", lastUpdate: 0)
+    let url = try makeTranslationFixture(ayahs: 7)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let translation = try TranslationDatabase(url: url, info: info, ayahCount: 7)
+    #expect(translation.text(for: AyahKey(surah: 1, ayah: 2)) == "(2) Text 2[1]")
+    #expect(translation.footnotes(for: AyahKey(surah: 1, ayah: 2)) == "[1]- A note.")
+    #expect(translation.footnotes(for: AyahKey(surah: 1, ayah: 3)) == nil)
+    #expect(info.name == "Test Center")
+    #expect(info.credit == "English Translation - Test Center, QuranEnc.com version 1.0.2")
+    #expect(throws: QuranStoreError.self) { try TranslationDatabase(url: url, info: info, ayahCount: 8) }
+}
+
+@Test func translationVersionsCompareNumerically() {
+    func info(_ version: String) -> TranslationInfo {
+        TranslationInfo(key: "k", title: "T", description: "", language: "en", direction: "ltr", version: version, lastUpdate: 0)
+    }
+    #expect(info("1.1.9").isOlder(than: info("1.1.10")))
+    #expect(info("1.0").isOlder(than: info("1.0.1")))
+    #expect(!info("1.1.2").isOlder(than: info("1.1.2")))
+    #expect(!info("2.0.0").isOlder(than: info("1.9.9")))
+}

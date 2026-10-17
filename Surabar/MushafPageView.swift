@@ -6,16 +6,18 @@ import SwiftUI
 /// SwiftUI wrapper for the Core Text page view.
 struct MushafPageView: NSViewRepresentable {
     let model: ReaderModel
+    /// The page this view draws; a page turn creates a new view, so the old page slides out unchanged.
+    let page: Int
     let theme: ReaderTheme
     let accent: NSColor
 
     func makeNSView(context: Context) -> MushafPageNSView {
-        MushafPageNSView(model: model)
+        MushafPageNSView(model: model, page: page)
     }
 
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
-        view.update(page: model.pageNumber, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
+        view.update(page: page, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
                     accent: accent, pageFonts: model.usesPageFonts,
                     marks: (model.annotations?.highlights, model.annotations?.notes.count))
     }
@@ -30,9 +32,13 @@ final class MushafPageNSView: NSView {
     private var swipeDistance: CGFloat = 0
     private var swipeHandled = false
 
-    init(model: ReaderModel) {
+    private var page: Int
+
+    init(model: ReaderModel, page: Int) {
         self.model = model
+        self.page = page
         super.init(frame: .zero)
+        wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -42,12 +48,26 @@ final class MushafPageNSView: NSView {
 
     func update(page: Int, script: String, selection: AyahKey, theme: ReaderTheme, accent: NSColor, pageFonts: Bool,
                 marks: (highlights: [AyahKey: HighlightEntry]?, notes: Int?)) {
+        // A new selection or highlight cross-fades in rather than jumping.
+        let marksChanged = drawnSelection != nil && (drawnSelection != selection || drawnHighlights != marks.highlights?.count)
+        drawnSelection = selection
+        drawnHighlights = marks.highlights?.count
+        self.page = page
         self.theme = theme
         self.accent = accent
         relayout()
         setAccessibilityLabel("Mushaf page \(page)")
+        if marksChanged, let layer {
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = 0.16
+            layer.add(fade, forKey: "marks")
+        }
         needsDisplay = true
     }
+
+    private var drawnSelection: AyahKey?
+    private var drawnHighlights: Int?
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -55,7 +75,7 @@ final class MushafPageNSView: NSView {
     }
 
     private func relayout() {
-        pageLayout = model.pageLayout(fitting: bounds.size)
+        pageLayout = model.pageLayout(page: page, fitting: bounds.size)
         needsDisplay = true
     }
 
@@ -87,6 +107,11 @@ final class MushafPageNSView: NSView {
         }
         PageRenderer.draw(pageLayout, in: context, colors: colors, highlighted: highlightedSelection ? [] : pageLayout.rects(for: selection),
                           decorations: decorations)
+        let size = bounds.size, scale = window?.backingScaleFactor ?? 2
+        // Once this page is on screen, get the pages either side ready.
+        DispatchQueue.main.async { [model, page] in
+            if model.pageNumber == page { model.prepareNeighbours(fitting: size, scale: scale) }
+        }
         context.restoreGState()
     }
 
@@ -172,7 +197,7 @@ final class MushafPageNSView: NSView {
             menu.addItem(.separator())
         }
         add("Copy Ayah", key: "c", to: menu, ayah) { $0.copy($1, withTranslation: false) }
-        add("Copy with Translation", to: menu, ayah) { $0.copy($1, withTranslation: true) }.isEnabled = model.library?.translation != nil
+        add("Copy with Translation", to: menu, ayah) { $0.copy($1, withTranslation: true) }.isEnabled = model.translation != nil
         return menu
     }
 
@@ -231,12 +256,52 @@ final class MushafPageNSView: NSView {
                               width: union.width, height: union.height)
             let element = NSAccessibilityElement.element(
                 withRole: .staticText, frame: NSAccessibility.screenRect(fromView: self, rect: rect),
-                label: "Ayah \(ayah)", parent: self)
+                label: accessibilityLabel(for: ayah), parent: self)
             element.setAccessibilityValue(fragments.map(\.item.text).joined(separator: " "))
             element.setAccessibilitySelected(ayah == model.state.selectedAyah)
+            element.setAccessibilityCustomActions(accessibilityActions(for: ayah))
             elements.append(element)
         }
         return elements
+    }
+
+    /// "Ayah 2:255, bookmarked, yellow highlight, has a note".
+    private func accessibilityLabel(for ayah: AyahKey) -> String {
+        var parts = ["Ayah \(ayah.description)"]
+        if let annotations = model.annotations {
+            if annotations.isBookmarked(ayah) { parts.append("bookmarked") }
+            if let highlight = annotations.highlights[ayah] { parts.append("\(highlight.color.rawValue) highlight") }
+            if annotations.notes[ayah] != nil { parts.append("has a note") }
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// The ayah menu's main actions, for VoiceOver (VO-Command-Space).
+    private func accessibilityActions(for ayah: AyahKey) -> [NSAccessibilityCustomAction] {
+        var actions: [NSAccessibilityCustomAction] = []
+        let model = model
+        if model.playAyah != nil {
+            actions.append(NSAccessibilityCustomAction(name: "Play from here") { MainActor.assumeIsolated { model.playAyah?(ayah) }; return true })
+        }
+        if let annotations = model.annotations {
+            let bookmarked = annotations.isBookmarked(ayah)
+            actions.append(NSAccessibilityCustomAction(name: bookmarked ? "Remove bookmark" : "Bookmark") {
+                MainActor.assumeIsolated { model.annotations?.toggleBookmark(ayah) }
+                return true
+            })
+            actions.append(NSAccessibilityCustomAction(name: annotations.notes[ayah] == nil ? "Add note" : "Edit note") {
+                MainActor.assumeIsolated {
+                    model.select(ayah)
+                    model.overlay = .note(ayah)
+                }
+                return true
+            })
+        }
+        actions.append(NSAccessibilityCustomAction(name: "Copy ayah") {
+            MainActor.assumeIsolated { model.copy(ayah, withTranslation: false) }
+            return true
+        })
+        return actions
     }
 }
 

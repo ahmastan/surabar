@@ -26,48 +26,71 @@ struct ReaderView: View {
                              actions: actions)
             } else {
                 header
-                Divider()
                 if let error = model.loadError {
                     missingData(error)
                 } else if state.viewMode == .playerOnly {
                     if let player {
                         NowPlayingCard(player: player, model: model, palette: palette)
-                        Divider()
                         PlayerView(player: player, model: model, palette: palette)
                     }
                     Spacer(minLength: 0)
                 } else {
+                    // The page is "paper" in the content layer; glass is only for controls (Apple's guidance).
                     ZStack(alignment: .top) {
                         VStack(spacing: 0) {
-                            MushafPageView(model: model, theme: state.theme, accent: palette.accentColor)
-                                .accessibilityLabel("Mushaf page \(model.pageNumber)")
+                            page
                             footer
                         }
                         .background(palette.page)
                         .overlay(alignment: .bottom) { backToPlaying }
                         overlay
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: ReaderLayout.pageCornerRadius, style: .continuous))
+                    .padding(.horizontal, ReaderLayout.pageInset)
                     if state.showTranslation {
-                        Divider()
                         TranslationStrip(model: model, playing: (player?.isActive ?? false) && model.followsPlayback, palette: palette)
                     }
                     if let player {
-                        Divider()
                         PlayerView(player: player, model: model, palette: palette)
                     }
                 }
             }
         }
-        .background(palette.chrome)
+        .background(windowBackground)
         .foregroundStyle(palette.ink)
         .tint(palette.accent)
-        .animation(.easeOut(duration: 0.12), value: model.overlay)
-        .animation(.easeOut(duration: 0.18), value: showsBackToPlaying)
+        .animation(Motion.standard(reduceMotion: reduceMotion), value: model.overlay)
+        .animation(reduceMotion ? nil : Motion.quick, value: showsBackToPlaying)
+        .animation(Motion.standard(reduceMotion: reduceMotion), value: state.isShowingSettings)
+        .animation(Motion.standard(reduceMotion: reduceMotion), value: state.viewMode)
         // The first time a layout with page fonts is shown, fetch them once.
         .task(id: model.state.script) { model.preparePageFonts() }
     }
 
     private var palette: ReaderPalette { ReaderPalette(state: state) }
+
+    /// The window shows through: the popover's (or detached window's) own glass or frosted material.
+    /// Frosted on macOS 26 covers the popover's glass with a standard material; Sepia warms either.
+    @ViewBuilder private var windowBackground: some View {
+        ZStack {
+            if state.glassStyle == .frosted && GlassStyle.isGlassAvailable { Rectangle().fill(.regularMaterial) }
+            if state.theme == .sepia { palette.chrome.opacity(0.55) }
+        }
+    }
+
+    /// The page, sliding in from the left when moving forward through the mushaf (right to left) and from
+    /// the right when moving back; a quick fade with Reduce Motion.
+    private var page: some View {
+        MushafPageView(model: model, page: model.pageNumber, theme: state.theme, accent: palette.accentColor)
+            .id("\(model.state.script):\(model.pageNumber)")
+            .transition(reduceMotion ? .opacity : .asymmetric(
+                insertion: .push(from: model.lastTurn > 0 ? .leading : .trailing),
+                removal: .push(from: model.lastTurn > 0 ? .leading : .trailing)))
+            .animation(model.lastTurn == 0 ? nil : reduceMotion ? .easeInOut(duration: 0.15) : Motion.page, value: model.pageNumber)
+            .clipped()
+            .accessibilityLabel("Mushaf page \(model.pageNumber)")
+    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     #if DEBUG
     /// Snapshots only: open the surah picker on the juz list with these expanded.
@@ -108,48 +131,60 @@ struct ReaderView: View {
 
             Spacer(minLength: 6)
 
-            if let annotations = model.annotations {
-                headerButton("Bookmarks, highlights, and notes", symbol: model.overlay == .annotations ? "bookmark.fill" : "bookmark") {
-                    toggle(.annotations)
+            // Related actions share one capsule, as toolbar groups do in macOS 26.
+            ControlCluster(style: palette.glass) {
+                if let annotations = model.annotations {
+                    headerButton("Bookmarks, highlights, and notes", symbol: model.overlay == .annotations ? "bookmark.fill" : "bookmark") {
+                        toggle(.annotations)
+                    }
+                    .disabled(model.library == nil)
+                    .popover(isPresented: popoverBinding(.annotations), arrowEdge: .bottom) {
+                        AnnotationsPanel(model: model, annotations: annotations, palette: palette).frame(width: 320, height: 380)
+                    }
                 }
-                .disabled(model.library == nil)
-                .popover(isPresented: popoverBinding(.annotations), arrowEdge: .bottom) {
-                    AnnotationsPanel(model: model, annotations: annotations, palette: palette).frame(width: 320, height: 380)
+                headerButton("Jump to ayah or page (⌘L)", symbol: "magnifyingglass") { toggle(.jump) }
+                    .disabled(model.library == nil)
+                    .popover(isPresented: popoverBinding(.jump), arrowEdge: .bottom) {
+                        JumpBox(model: model, palette: palette, framed: false).frame(width: 300)
+                    }
+                if state.isDetached {
+                    headerButton("Return to menu bar", symbol: "menubar.arrow.up.rectangle", action: actions.attach)
+                } else {
+                    headerButton("Detach window", symbol: "macwindow.on.rectangle", action: actions.detach)
                 }
-            }
-            headerButton("Jump to ayah or page (⌘L)", symbol: "magnifyingglass") { toggle(.jump) }
-                .disabled(model.library == nil)
-                .popover(isPresented: popoverBinding(.jump), arrowEdge: .bottom) {
-                    JumpBox(model: model, palette: palette, framed: false).frame(width: 300)
+                headerButton("Settings (⌘,)", symbol: "gearshape") {
+                    model.overlay = nil
+                    state.isShowingSettings = true
                 }
-            if state.isDetached {
-                headerButton("Return to menu bar", symbol: "menubar.arrow.up.rectangle", action: actions.attach)
-            } else {
-                headerButton("Detach window", symbol: "macwindow.on.rectangle", action: actions.detach)
-            }
-            headerButton("Settings (⌘,)", symbol: "gearshape") {
-                model.overlay = nil
-                state.isShowingSettings = true
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
+        .padding(.leading, 14)
+        .padding(.trailing, ReaderLayout.pageInset)
         .frame(height: ReaderLayout.headerHeight)
     }
 
     private func headerButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).frame(width: 28, height: 28).contentShape(Rectangle())
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(palette.secondary)
+        .buttonStyle(ClusterButtonStyle())
+        .foregroundStyle(palette.ink.opacity(0.8))
         .help(label)
         .accessibilityLabel(label)
     }
 
+    /// Opens or closes an overlay. Clicks closer together than the transition are ignored, so rapid
+    /// clicking cannot stack half-finished transitions.
     private func toggle(_ overlay: ReaderModel.Overlay) {
+        let now = CACurrentMediaTime()
+        guard now - Self.lastToggle > 0.3 else { return }
+        Self.lastToggle = now
         model.overlay = model.overlay == overlay ? nil : overlay
     }
+
+    @MainActor private static var lastToggle = 0.0
 
     // MARK: Page footer
 
@@ -203,14 +238,14 @@ struct ReaderView: View {
                     .foregroundStyle(palette.onAccent)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Capsule().fill(palette.accent))
-                    .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
                     .contentShape(Capsule())
+                    // Tinted glass suggests prominence (Apple's guidance for custom glass).
+                    .surface(palette.glass, in: Capsule(), interactive: true, tint: palette.accent)
             }
             .buttonStyle(.plain)
             .padding(.bottom, ReaderLayout.footerHeight + 10)
             .help("Show the ayah being recited and follow it again")
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)).combined(with: .move(edge: .bottom)))
         }
     }
 
@@ -218,21 +253,23 @@ struct ReaderView: View {
         switch state.viewMode == .playerOnly ? nil : model.overlay {
         case .surahPicker:
             SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter, debugExpandedJuz: debugExpandedJuz)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .overlayCard(palette)
+                .transition(Motion.overlay(reduceMotion: reduceMotion))
         case .jump:
             JumpBox(model: model, palette: palette)
-                .padding(10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .padding(8)
+                .transition(Motion.overlay(reduceMotion: reduceMotion))
         case .annotations:
             if let annotations = model.annotations {
                 AnnotationsPanel(model: model, annotations: annotations, palette: palette)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .overlayCard(palette)
+                    .transition(Motion.overlay(reduceMotion: reduceMotion))
             }
         case .note(let ayah):
             if let annotations = model.annotations {
                 NoteEditor(ayah: ayah, model: model, annotations: annotations, palette: palette)
-                    .padding(10)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .padding(8)
+                    .transition(Motion.overlay(reduceMotion: reduceMotion))
             }
         case nil:
             EmptyView()
@@ -307,15 +344,30 @@ struct TranslationStrip: View {
                     }
                 }
                 Spacer()
-                Text(model.library?.translation?.name ?? "").font(.caption).foregroundStyle(palette.secondary)
+                if let info = model.translation?.info {
+                    // QuranEnc's terms: credit the publisher, the source, and the version.
+                    Text(info.name).font(.caption).foregroundStyle(palette.secondary).lineLimit(1).help(info.credit)
+                }
             }
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(model.selectedTranslation ?? "No bundled translation.")
-                        .font(.callout)
-                        .lineSpacing(1.5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(model.selectedTranslation ?? "No translation is available.")
+                            .font(.callout)
+                            .lineSpacing(1.5)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        // The translator's footnotes, as in a printed translation.
+                        if let footnotes = model.translation?.footnotes(for: model.state.selectedAyah) {
+                            Text(footnotes)
+                                .font(.caption)
+                                .foregroundStyle(palette.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .environment(\.layoutDirection, model.translation?.info.isRightToLeft == true ? .rightToLeft : .leftToRight)
                     if let note = model.annotations?.notes[model.state.selectedAyah] {
                         Label(note.text, systemImage: "note.text")
                             .font(.callout.italic())
@@ -334,7 +386,24 @@ struct TranslationStrip: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(height: ReaderLayout.translationHeight)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Translation of ayah \(model.state.selectedAyah.description)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(model.translation?.info.name ?? "Translation") of ayah \(model.state.selectedAyah.description)")
+        .accessibilityValue(accessibilityText)
+    }
+
+    /// The translation, its footnotes, and the note, read in that order.
+    private var accessibilityText: String {
+        let ayah = model.state.selectedAyah
+        return [model.selectedTranslation, model.translation?.footnotes(for: ayah),
+                model.annotations?.notes[ayah].map { "Your note: \($0.text)" }]
+            .compactMap { $0 }.joined(separator: "\n")
+    }
+}
+
+private extension View {
+    /// A full-page overlay (surah picker, annotations) on a glass sheet inset within the page card.
+    func overlayCard(_ palette: ReaderPalette) -> some View {
+        self.surface(palette.glass, in: RoundedRectangle(cornerRadius: ReaderLayout.pageCornerRadius - 4, style: .continuous))
+            .padding(6)
     }
 }

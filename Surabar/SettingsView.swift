@@ -1,3 +1,4 @@
+import KeyboardShortcuts
 import MushafRendering
 import Recitation
 import SwiftUI
@@ -9,6 +10,7 @@ struct SettingsView: View {
     let player: RecitationPlayer?
     let downloads: DownloadCenter?
     let palette: ReaderPalette
+    @State private var launchAtLogin = LaunchAtLogin()
     /// Opens the colour panel and the backup file panels.
     let actions: ReaderActions
 
@@ -20,9 +22,10 @@ struct SettingsView: View {
                 Button("Done") {
                     state.isShowingSettings = false
                     state.showsDownloads = false
+                    state.showsTranslations = false
                     state.backupMessage = nil
                 }
-                    .buttonStyle(.borderedProminent)
+                    .modifier(ProminentButton(glass: palette.glass))
                     .keyboardShortcut(.defaultAction)
                     .help("Return to the reader (Esc)")
             }
@@ -34,7 +37,12 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     switch state.settingsTab {
                     case .appearance: appearance
-                    case .reading: reading
+                    case .reading:
+                        if state.showsTranslations, let translations = model.translations {
+                            TranslationsView(translations: translations, state: state, palette: palette)
+                        } else {
+                            reading
+                        }
                     case .player:
                         if state.showsDownloads, let downloads, let player {
                             DownloadsView(downloads: downloads, model: model, reciter: player.reciter, palette: palette)
@@ -50,11 +58,22 @@ struct SettingsView: View {
                 .background(GeometryReader { Color.clear.preference(key: SettingsContentHeight.self, value: $0.size.height) })
             }
             .onPreferenceChange(SettingsContentHeight.self) { height in
-                let tab = state.settingsTab
-                if abs((state.settingsContentHeights[tab] ?? 0) - height) > 0.5 { state.settingsContentHeights[tab] = height }
+                if !measuresScrollGeometry { record(height) }
             }
+            .modifier(ScrollContentHeight(record: record))
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// The scroll view's own measure (content plus the margins it adds around it, which macOS 26 reserves
+    /// for its edge effect) is used where available; the content's frame on macOS 14.
+    private var measuresScrollGeometry: Bool {
+        if #available(macOS 15.0, *) { true } else { false }
+    }
+
+    private func record(_ height: Double) {
+        let tab = state.settingsTab
+        if abs((state.settingsContentHeights[tab] ?? 0) - height) > 0.5 { state.settingsContentHeights[tab] = height }
     }
 
     // MARK: Tabs
@@ -66,6 +85,7 @@ struct SettingsView: View {
                 Button {
                     state.settingsTab = tab
                     state.showsDownloads = false
+                    state.showsTranslations = false
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.symbol).font(.system(size: 17)).frame(height: 20)
@@ -93,6 +113,17 @@ struct SettingsView: View {
                 segmented($state.theme, ReaderTheme.allCases, title: \.title)
             }
             Divider()
+            SettingsRow("Glass", palette: palette, stacked: true, footnote: glassFootnote) {
+                Picker("Glass", selection: $state.glassStyle) {
+                    ForEach(GlassStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                            .selectionDisabled(style == .glass && !GlassStyle.isGlassAvailable)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            Divider()
             SettingsRow("Accent colour", value: state.accent.title, palette: palette, stacked: true) {
                 AccentSwatches(state: state, palette: palette, editCustom: actions.editCustomAccent)
             }
@@ -105,6 +136,15 @@ struct SettingsView: View {
                         footnote: "Keys 1, 2, and 3 also choose a size while the reader is open.") {
                 segmented($state.size, ReaderSize.allCases, title: \.title)
             }
+        }
+    }
+
+    private var glassFootnote: String {
+        guard GlassStyle.isGlassAvailable else { return "Liquid Glass needs macOS 26 or later; until then Surabar uses the frosted materials." }
+        return switch state.glassStyle {
+        case .system: "Apple's Liquid Glass, as set in System Settings › Appearance › Liquid Glass. Reduce Transparency makes it solid."
+        case .glass: "Apple's Liquid Glass for the window and its controls."
+        case .frosted: "Apple's frosted materials, as in macOS Sonoma and Sequoia."
         }
     }
 
@@ -127,16 +167,17 @@ struct SettingsView: View {
                 }
                 Divider()
             }
-            SettingsRow("Show translation", palette: palette,
-                        footnote: translationFootnote) {
+            SettingsRow("Show translation", palette: palette, footnote: "Below the page in \"Quran + player\" mode.") {
                 Toggle("Show translation", isOn: $state.showTranslation).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
+            if let translations = model.translations {
+                Divider()
+                SettingsRow("Translation", value: translations.current?.info.name ?? "None", palette: palette,
+                            footnote: translations.current.map { "\($0.info.title), version \($0.info.version). From \($0.info.source), shown unmodified." }) {
+                    Button("Change…") { state.showsTranslations = true }
+                }
+            }
         }
-    }
-
-    private var translationFootnote: String {
-        let name = model.library?.translation.map { "\($0.name), " } ?? ""
-        return "\(name)below the page in \"Quran + player\" mode."
     }
 
     // MARK: Player
@@ -148,9 +189,14 @@ struct SettingsView: View {
                 segmented($state.skipUnit, SkipUnit.allCases, title: \.title)
             }
             Divider()
-            SettingsRow("Stop playback at the end of the", palette: palette, stacked: true,
+            // A menu rather than four segments, which would be wider than the window.
+            SettingsRow("Stop at the end of the", palette: palette,
                         footnote: "When the Loop is off. A loop repeats instead of stopping.") {
-                segmented($state.playbackStop, PlaybackStop.allCases, title: \.title)
+                Picker("Stop at the end of the", selection: $state.playbackStop) {
+                    ForEach(PlaybackStop.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
             }
         }
         SettingsGroup(title: "Loop", palette: palette) {
@@ -224,6 +270,24 @@ struct SettingsView: View {
                 segmented($state.viewMode, ReaderViewMode.allCases, title: \.title)
             }
         }
+        SettingsGroup(title: "Opening Surabar", palette: palette) {
+            SettingsRow("Keyboard shortcut", palette: palette, footnote: "Opens or closes Surabar from any app.") {
+                KeyboardShortcuts.Recorder(for: .toggleReader)
+            }
+            Divider()
+            SettingsRow("Open at login", palette: palette, footnote: loginFootnote) {
+                Toggle("Open at login", isOn: Binding(get: { launchAtLogin.isEnabled }, set: { launchAtLogin.set($0) }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            if launchAtLogin.needsApproval {
+                HStack {
+                    Spacer()
+                    Button("Open Login Items…", action: launchAtLogin.openLoginItems)
+                }
+                .padding(.bottom, 10)
+            }
+        }
+        .onAppear(perform: launchAtLogin.refresh)
         if let annotations = model.annotations {
             SettingsGroup(title: "Bookmarks, highlights, and notes", palette: palette) {
                 SettingsRow("Backup", value: annotationSummary(annotations), palette: palette,
@@ -242,6 +306,12 @@ struct SettingsView: View {
         }
     }
 
+    private var loginFootnote: String? {
+        if let error = launchAtLogin.error { return error }
+        if launchAtLogin.needsApproval { return "Allow Surabar in System Settings › General › Login Items to finish." }
+        return nil
+    }
+
     private func annotationSummary(_ annotations: AnnotationStore) -> String {
         let counts = [(annotations.bookmarks.count, "bookmark"), (annotations.highlights.count, "highlight"), (annotations.notes.count, "note")]
             .filter { $0.0 > 0 }
@@ -255,6 +325,28 @@ struct SettingsView: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+    }
+}
+
+/// Reports a scroll view's full content height, including its content margins (macOS 15 and later).
+private struct ScrollContentHeight: ViewModifier {
+    let record: (Double) -> Void
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.onScrollGeometryChange(for: Double.self) { geometry in
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["SURABAR_SNAPSHOT_DEBUG"] != nil {
+                    print("scroll geometry: content \(geometry.contentSize) insets \(geometry.contentInsets) container \(geometry.containerSize) offset \(geometry.contentOffset)")
+                }
+                #endif
+                return geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+            } action: { _, height in
+                record(height)
+            }
+        } else {
+            content
+        }
     }
 }
 

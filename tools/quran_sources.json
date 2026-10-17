@@ -161,14 +161,23 @@
     }
   },
   "translations": {
-    "en.sahih": {
-      "url": "https://qul.tarteel.ai/resources/translation/193",
-      "name": "Saheeh International",
-      "archive": "translation/en-sahih-international-simple.json.zip",
-      "archive_sha256": "5ea008e2635be26ea1530cfb3f94872d0a46a8d3edab48e14d2b214a5db47304",
-      "path": "translation/en-sahih-international-simple.json-extracted/en-sahih-international-simple.json",
-      "sha256": "57df29716a55f6aa1f17c70f101872303f8b814ab7ba72f76993d9d5e3000750",
-      "license_status": "Redistribution terms not established; not bundled."
+    "english_saheeh": {
+      "url": "https://quranenc.com/en/browse/english_saheeh",
+      "download_url": "https://quranenc.com/downloads/sqlite/english_saheeh.zip",
+      "source": "QuranEnc.com",
+      "title": "English Translation - Noor International Center",
+      "display_name": "Saheeh International",
+      "description": "Issued by Noor International Center.",
+      "language": "en",
+      "direction": "ltr",
+      "version": "1.1.2",
+      "last_update": 1750772247,
+      "archive": "translation/quranenc-english_saheeh-1.1.2/english_saheeh.zip",
+      "archive_sha256": "16a234782e0d43f2c1e31177941d65f5b9e813679edb0b4737a0589627fa7ac2",
+      "path": "translation/quranenc-english_saheeh-1.1.2/english_saheeh.zip-extracted/english_saheeh.sqlite",
+      "sha256": "8e3feedb9b6735d60355c53aef9ebc4b86a8b995d118c0387e7e1bd93b67eddb",
+      "license_status": "QuranEnc.com terms (https://quranenc.com/en/home/api/) allow downloading and re-publishing on conditions: no modification, addition, or deletion; clearly credit the publisher and QuranEnc.com; mention the version number; keep the transcript information; notify QuranEnc of notes; update to the latest version; no inappropriate advertisements. Bundled unmodified; the app credits publisher, source, and version, and updates from QuranEnc.",
+      "replaces": "QUL resource 193 (Saheeh International simple JSON), whose redistribution terms were never established (owner decision 2026-10-16)."
     }
   }
 }

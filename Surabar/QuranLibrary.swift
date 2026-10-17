@@ -2,16 +2,14 @@ import Foundation
 import MushafRendering
 import QuranStore
 
-/// The bundled, read-only Quran data: database, one font per layout, and the English translation.
+/// The bundled, read-only Quran data: database and one font per layout. Translations are in `TranslationLibrary`.
 final class QuranLibrary: Sendable {
     let store: QuranStore
     let fonts: [String: MushafFont]
-    let translation: Translation?
 
-    private init(store: QuranStore, fonts: [String: MushafFont], translation: Translation?) {
+    private init(store: QuranStore, fonts: [String: MushafFont]) {
         self.store = store
         self.fonts = fonts
-        self.translation = translation
     }
 
     /// Loads the files tools/prepare_app_resources.py places in Surabar/Resources/Bundled.
@@ -29,27 +27,11 @@ final class QuranLibrary: Sendable {
                 }
                 fonts[layout.id] = try MushafFont(url: url)
             }
-            let translation = bundle.url(forResource: "translation-en-sahih", withExtension: "json")
-                .flatMap { try? Translation(url: $0, name: "Saheeh International") }
-            return .success(QuranLibrary(store: store, fonts: fonts, translation: translation))
+            return .success(QuranLibrary(store: store, fonts: fonts))
         } catch let error as QuranStoreError {
             return .failure(error)
         } catch {
             return .failure(QuranStoreError(String(describing: error)))
         }
     }
-}
-
-/// A translation keyed by "surah:ayah", read from QUL's simple JSON export.
-struct Translation: Sendable {
-    let name: String
-    private let texts: [String: String]
-
-    init(url: URL, name: String) throws {
-        struct Entry: Decodable { let t: String }
-        texts = try JSONDecoder().decode([String: Entry].self, from: Data(contentsOf: url)).mapValues(\.t)
-        self.name = name
-    }
-
-    func text(for ayah: AyahKey) -> String? { texts[ayah.description] }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 import MushafRendering
 import Recitation
 
@@ -16,10 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
-        if DebugSnapshot.runIfRequested() || DebugPlaybackProbe.runIfRequested() { return }
+        if DebugSnapshot.runIfRequested() || DebugPlaybackProbe.runIfRequested() || DebugBenchmark.runIfRequested() { return }
         #endif
         model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
         model.annotations = try? AnnotationStore()
+        let translations = TranslationLibrary(state: state)
+        model.translations = translations
+        // Keep translations current, as QuranEnc's terms ask.
+        Task { await translations.refresh() }
         if let store = model.store {
             let counts = store.surahs.map(\.ayahCount)
             let timings = TimingsStore(ayahCounts: counts)
@@ -39,6 +44,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         reader = ReaderController(state: state, model: model, player: player, downloads: downloads)
         statusItem = StatusItemController(state: state, reader: reader)
+        KeyboardShortcuts.onKeyUp(for: .toggleReader) { [weak self] in
+            #if DEBUG
+            print("Surabar: shortcut pressed; app active: \(NSApp.isActive), reader open: \(self?.reader.isPopoverShown ?? false)")
+            #endif
+            guard let self, let button = statusItem.button else { return }
+            reader.toggle(from: button)
+        }
         // Local event monitors are called on the main thread.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let handled = MainActor.assumeIsolated { self?.handleKey(event) ?? false }

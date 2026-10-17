@@ -21,6 +21,9 @@ final class ReaderModel {
     let library: QuranLibrary?
     let loadError: String?
     var overlay: Overlay?
+    /// The direction of the last page change: +1 forward (the next page), −1 back, 0 for a jump to
+    /// another script or the first load. The page slides in from that side.
+    private(set) var lastTurn = 0
     /// Whether the page and selection follow the recited ayah. Turning pages, jumping, or selecting
     /// another ayah stops following until playback is moved or "Back to playing" is chosen.
     var followsPlayback = true
@@ -28,6 +31,8 @@ final class ReaderModel {
     @ObservationIgnored var playAyah: ((AyahKey) -> Void)?
     /// Loops a range of ayahs ("Loop to Here"); set by the app.
     @ObservationIgnored var loopAyahs: ((ClosedRange<AyahKey>) -> Void)?
+    /// Translations (QuranEnc.com); set by the app.
+    @ObservationIgnored var translations: TranslationLibrary?
     /// Bookmarks, highlights, and notes; nil when the store could not be opened.
     @ObservationIgnored var annotations: AnnotationStore?
     /// Downloadable page fonts by layout id, for layouts drawn with one font per page.
@@ -35,6 +40,9 @@ final class ReaderModel {
 
     @ObservationIgnored private var pageCache: [String: MushafPage] = [:]
     @ObservationIgnored private var layoutCache: [String: PageLayout] = [:]
+    @ObservationIgnored private var juzCache: [Int: [(surah: Surah, ayahs: ClosedRange<Int>)]] = [:]
+    /// Neighbouring pages being laid out in the background.
+    @ObservationIgnored private var preparing: Set<String> = []
     @ObservationIgnored private var infoCache: [String: PageInfo] = [:]
 
     init(state: AppState, library: Result<QuranLibrary, QuranStoreError>) {
@@ -115,7 +123,10 @@ final class ReaderModel {
         return store.surah(number)
     }
 
-    var selectedTranslation: String? { library?.translation?.text(for: state.selectedAyah) }
+    /// The translation shown under the page.
+    var translation: TranslationDatabase? { translations?.current }
+
+    var selectedTranslation: String? { translation?.text(for: state.selectedAyah) }
 
     func isOnPage(_ ayah: AyahKey) -> Bool {
         guard let info = pageInfo else { return false }
@@ -124,28 +135,84 @@ final class ReaderModel {
 
     // MARK: Page layout
 
-    /// The page laid out to fit `size`: full width when it fits, otherwise narrower so the whole page shows.
-    func pageLayout(fitting size: CGSize) -> PageLayout? {
-        guard let layout, let font, let store, size.width > 40, size.height > 40 else { return nil }
-        let glyphFonts = usesPageFonts ? currentPageFonts?.glyphFonts(page: pageNumber) : nil
+    /// A page (the current one by default) laid out to fit `size`: full width when it fits, otherwise
+    /// narrower so the whole page shows.
+    func pageLayout(page: Int? = nil, fitting size: CGSize) -> PageLayout? {
+        guard let job = layoutJob(page: page ?? pageNumber, fitting: size) else { return nil }
+        if let cached = layoutCache[job.key] { return cached }
+        let result = job.run()
+        remember(result, key: job.key)
+        return result
+    }
+
+    /// Everything needed to lay out a page, which can run off the main thread.
+    private struct LayoutJob: Sendable {
+        let key: String
+        let page: MushafPage
+        let width: Double
+        let font: MushafFont
+        let style: PageStyle
+        let glyphFonts: GlyphFonts?
+
+        func run() -> PageLayout {
+            PageLayoutEngine.layout(page, width: width, font: font, style: style, glyphFonts: glyphFonts)
+        }
+    }
+
+    private func layoutJob(page number: Int, fitting size: CGSize) -> LayoutJob? {
+        guard let layout, let font, let store, size.width > 40, size.height > 40, (1 ... layout.pageCount).contains(number) else {
+            return nil
+        }
+        let glyphFonts = usesPageFonts ? currentPageFonts?.glyphFonts(page: number) : nil
         let style = style(usingPageFonts: glyphFonts != nil)
         let width = PageLayoutEngine.width(fitting: size.height, maximumWidth: size.width, linesPerPage: layout.linesPerPage,
                                            font: font, style: style).rounded(.down)
-        let key = "\(layout.id):\(glyphFonts == nil ? "f" : "g"):\(pageNumber):\(Int(width))"
-        if let cached = layoutCache[key] { return cached }
+        let key = "\(layout.id):\(glyphFonts == nil ? "f" : "g"):\(number):\(Int(width))"
         let page: MushafPage
-        if let cached = pageCache["\(layout.id):\(pageNumber)"] {
+        if let cached = pageCache["\(layout.id):\(number)"] {
             page = cached
         } else {
-            guard let loaded = try? store.page(pageNumber, of: layout) else { return nil }
+            guard let loaded = try? store.page(number, of: layout) else { return nil }
             page = loaded
-            pageCache["\(layout.id):\(pageNumber)"] = loaded
+            if pageCache.count > 24 { pageCache.removeAll() }
+            pageCache["\(layout.id):\(number)"] = loaded
         }
-        let result = PageLayoutEngine.layout(page, width: width, font: font, style: style, glyphFonts: glyphFonts)
-        if layoutCache.count > 24 { layoutCache.removeAll() }
-        if pageCache.count > 24 { pageCache.removeAll() }
+        return LayoutJob(key: key, page: page, width: width, font: font, style: style, glyphFonts: glyphFonts)
+    }
+
+    /// A few layouts are kept; each holds its page font, so more would cost memory for little gain.
+    private func remember(_ result: PageLayout, key: String) {
+        if layoutCache.count >= 8 { layoutCache.removeAll() }
         layoutCache[key] = result
-        return result
+    }
+
+    /// Lays out and draws the next and previous pages off the main thread after a page is shown. Core
+    /// Graphics keeps the rendered glyphs, and each page has its own font, so the first draw of a page is
+    /// slow (about 14 ms) and later ones fast (under 1 ms); page turns then only draw prepared pages.
+    func prepareNeighbours(fitting size: CGSize, scale: CGFloat) {
+        let jobs = [pageNumber + 1, pageNumber - 1].compactMap { layoutJob(page: $0, fitting: size) }
+            .filter { layoutCache[$0.key] == nil && !preparing.contains($0.key) }
+        guard !jobs.isEmpty else { return }
+        preparing.formUnion(jobs.map(\.key))
+        Task.detached(priority: .utility) { [weak self] in
+            for job in jobs {
+                let result = job.run()
+                Self.warmGlyphs(of: result, scale: scale)
+                await MainActor.run {
+                    self?.preparing.remove(job.key)
+                    self?.remember(result, key: job.key)
+                }
+            }
+        }
+    }
+
+    /// Draws a layout into a scratch bitmap at the screen's scale, so its glyphs are rendered and cached.
+    nonisolated private static func warmGlyphs(of layout: PageLayout, scale: CGFloat) {
+        guard let context = CGContext(data: nil, width: max(Int(layout.size.width * scale), 1), height: max(Int(layout.size.height * scale), 1),
+                                      bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return }
+        context.scaleBy(x: scale, y: scale)
+        PageRenderer.draw(layout, in: context)
     }
 
     /// The page height at a reader width, used to size the popover.
@@ -156,11 +223,18 @@ final class ReaderModel {
 
     // MARK: Navigation
 
+    /// Shows a page of the current layout, remembering which way the reader moved.
+    private func show(page: Int, in layout: LayoutInfo) {
+        let current = pageNumber
+        lastTurn = page == current ? lastTurn : page > current ? 1 : -1
+        state.pages[layout.id] = page
+    }
+
     func goToPage(_ number: Int) {
         guard let layout else { return }
         followsPlayback = false
         let page = min(max(number, 1), layout.pageCount)
-        state.pages[layout.id] = page
+        show(page: page, in: layout)
         // Keep the selection on screen so the translation strip follows reading.
         if let info = pageInfo, !isOnPage(state.selectedAyah) { state.selectedAyah = info.firstAyah }
     }
@@ -173,7 +247,7 @@ final class ReaderModel {
     func goTo(_ ayah: AyahKey) {
         guard let layout, let store, store.contains(ayah), let page = try? store.firstPage(of: ayah, in: layout) else { return }
         followsPlayback = false
-        state.pages[layout.id] = page
+        show(page: page, in: layout)
         state.selectedAyah = ayah
     }
 
@@ -204,7 +278,7 @@ final class ReaderModel {
         guard followsPlayback else { return }
         state.selectedAyah = ayah
         guard !isOnPage(ayah), let layout, let page = try? store?.firstPage(of: ayah, in: layout) else { return }
-        state.pages[layout.id] = page
+        show(page: page, in: layout)
     }
 
     /// Selects the next (+1) or previous (−1) ayah, turning the page when it starts elsewhere.
@@ -214,7 +288,7 @@ final class ReaderModel {
         guard let next, let layout, let pages = try? store.pages(containing: next, in: layout), let first = pages.first else { return }
         followsPlayback = false
         state.selectedAyah = next
-        if !pages.contains(pageNumber) { state.pages[layout.id] = direction > 0 ? first : pages.last ?? first }
+        if !pages.contains(pageNumber) { show(page: direction > 0 ? first : pages.last ?? first, in: layout) }
     }
 
     /// "Back to playing": follow the recited ayah again and show it.
@@ -242,21 +316,24 @@ final class ReaderModel {
         return ayahsStarting(onPage: page)
     }
 
-    /// The surahs in a juz, in order, with the ayahs of each that fall in it.
+    /// The surahs in a juz, in order, with the ayahs of each that fall in it. Worked out once per juz:
+    /// the picker shows all thirty, and it should open without querying the database each time.
     func juzContents(_ juz: Int) -> [(surah: Surah, ayahs: ClosedRange<Int>)] {
+        if let cached = juzCache[juz] { return cached }
         guard let store, let first = try? store.firstAyah(ofJuz: juz), let last = try? store.lastAyah(ofJuz: juz) else { return [] }
-        return (first.surah ... last.surah).compactMap { number in
+        let contents: [(surah: Surah, ayahs: ClosedRange<Int>)] = (first.surah ... last.surah).compactMap { number in
             guard let surah = store.surah(number) else { return nil }
             let start = number == first.surah ? first.ayah : 1
             let end = number == last.surah ? last.ayah : surah.ayahCount
             return (surah, start ... end)
         }
+        juzCache[juz] = contents
+        return contents
     }
 
     /// The surahs with ayahs in a juz, which downloading the juz fetches.
     func surahs(inJuz juz: Int) -> [Int] {
-        guard let store, let first = try? store.firstAyah(ofJuz: juz), let last = try? store.lastAyah(ofJuz: juz) else { return [] }
-        return Array(first.surah ... last.surah)
+        juzContents(juz).map(\.surah.number)
     }
 
     /// The last ayah of the page or juz `ayah` is in, where "Stop playback at" ends playback.
@@ -293,6 +370,7 @@ final class ReaderModel {
         guard id != state.script, let store, let target = try? store.layout(id) else { return }
         let anchor = isOnPage(state.selectedAyah) ? state.selectedAyah : (pageInfo?.firstAyah ?? state.selectedAyah)
         state.script = id
+        lastTurn = 0
         if let page = try? store.firstPage(of: anchor, in: target) { state.pages[id] = page }
     }
 
@@ -315,8 +393,8 @@ final class ReaderModel {
     func copy(_ ayah: AyahKey, withTranslation: Bool) {
         guard let store, let layout, let text = try? store.text(of: ayah, in: layout) else { return }
         var string = "\(text)\n(Quran \(ayah))"
-        if withTranslation, let translation = library?.translation, let english = translation.text(for: ayah) {
-            string += "\n\n\(english) (\(translation.name))"
+        if withTranslation, let translation, let meaning = translation.text(for: ayah) {
+            string += "\n\n\(meaning) (\(translation.info.name), \(translation.info.source) v\(translation.info.version))"
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)

@@ -23,13 +23,16 @@ struct PlaybackPreferenceTests {
         let state = AppState(defaults: defaults)
         #expect(state.reciterID == 123)
         #expect(state.speed == 1)
+        #expect(state.volume == 1)
         #expect(state.lastPlayedAyah == nil)
         state.reciterID = 118
         state.speed = 1.25
+        state.volume = 0.4
         state.lastPlayedAyah = .init(surah: 2, ayah: 255)
         let relaunched = AppState(defaults: defaults)
         #expect(relaunched.reciterID == 118)
         #expect(relaunched.speed == 1.25)
+        #expect(relaunched.volume == 0.4)
         #expect(relaunched.lastPlayedAyah == .init(surah: 2, ayah: 255))
         defaults.set(3.0, forKey: "playbackSpeed")
         #expect(AppState(defaults: defaults).speed == 1)

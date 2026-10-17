@@ -29,7 +29,7 @@ struct AnnotationsPanel: View {
                         }
                     case .highlights:
                         ForEach(annotations.highlights.keys.sorted(), id: \.self) { ayah in
-                            row(ayah, detail: model.library?.translation?.text(for: ayah) ?? "", lines: 1) {
+                            row(ayah, detail: model.translation?.text(for: ayah) ?? "", lines: 1) {
                                 Circle().fill(Color(nsColor: annotations.highlights[ayah]!.color.swatch)).frame(width: 10, height: 10)
                             } delete: { annotations.setHighlight(ayah, nil) }
                         }
@@ -46,7 +46,6 @@ struct AnnotationsPanel: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(palette.chrome)
     }
 
     private var isEmpty: Bool {
@@ -213,13 +212,12 @@ struct NoteEditor: View {
                     model.overlay = nil
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .buttonStyle(.borderedProminent)
+                .modifier(ProminentButton(glass: palette.glass))
                 .help("Save (⌘↩)")
             }
         }
         .padding(12)
-        .background(palette.chrome, in: RoundedRectangle(cornerRadius: 10))
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        .surface(palette.glass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onAppear {
             text = annotations.notes[ayah]?.text ?? ""
             focused = true

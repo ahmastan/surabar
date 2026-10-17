@@ -56,7 +56,7 @@ enum PlaybackStop: String, CaseIterable, Identifiable {
         case .page: "Page"
         case .surah: "Surah"
         case .juz: "Juz"
-        case .quran: "End of Quran"
+        case .quran: "Quran"
         }
     }
 }
@@ -206,6 +206,7 @@ final class AppState {
         static let size = "readerSize"
         static let theme = "readerTheme"
         static let menuBarIcon = "menuBarIcon"
+        static let glassStyle = "glassStyle"
         static let accent = "accentColor"
         static let customAccent = "customAccentColor"
         static let viewMode = "viewMode"
@@ -218,11 +219,13 @@ final class AppState {
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
         static let translation = "showTranslation"
+        static let translationKey = "translationKey"
         static let script = "readingScript"
         static let pages = "readingPages"
         static let selection = "selectedAyah"
         static let reciter = "mp3quranReciter"
         static let speed = "playbackSpeed"
+        static let volume = "playbackVolume"
         static let repeatPause = "repeatPause"
         static let lastPlayed = "lastPlayedAyah"
     }
@@ -240,6 +243,10 @@ final class AppState {
 
     var theme: ReaderTheme {
         didSet { defaults.set(theme.rawValue, forKey: Keys.theme) }
+    }
+
+    var glassStyle: GlassStyle {
+        didSet { defaults.set(glassStyle.rawValue, forKey: Keys.glassStyle) }
     }
 
     var menuBarIcon: MenuBarIcon {
@@ -296,6 +303,8 @@ final class AppState {
     var settingsTab = SettingsTab.appearance
     /// "Manage downloads", shown within Settings › Player.
     var showsDownloads = false
+    /// The list of translations, shown within Settings › Reading.
+    var showsTranslations = false
     /// The outcome of the last backup import or export, shown in Settings › General.
     var backupMessage: String?
     /// The measured height of each Settings tab's content; the reader resizes to fit it.
@@ -312,6 +321,11 @@ final class AppState {
 
     var showTranslation: Bool {
         didSet { defaults.set(showTranslation, forKey: Keys.translation) }
+    }
+
+    /// The QuranEnc key of the translation shown, or nil for the bundled default.
+    var translationKey: String? {
+        didSet { defaults.set(translationKey, forKey: Keys.translationKey) }
     }
 
     /// The layout being read: "uthmani" or "indopak".
@@ -339,6 +353,11 @@ final class AppState {
         didSet { defaults.set(speed, forKey: Keys.speed) }
     }
 
+    /// The recitation's loudness, 0–1, relative to the Mac's volume.
+    var volume: Double {
+        didSet { defaults.set(volume, forKey: Keys.volume) }
+    }
+
     /// Seconds of silence between repeats of an ayah or range, 0–5.
     var repeatPause: Double {
         didSet { defaults.set(repeatPause, forKey: Keys.repeatPause) }
@@ -356,6 +375,7 @@ final class AppState {
         self.defaults = defaults
         size = defaults.string(forKey: Keys.size).flatMap(ReaderSize.init(rawValue:)) ?? .medium
         theme = defaults.string(forKey: Keys.theme).flatMap(ReaderTheme.init(rawValue:)) ?? .system
+        glassStyle = defaults.string(forKey: Keys.glassStyle).flatMap(GlassStyle.init(rawValue:)) ?? .system
         menuBarIcon = defaults.string(forKey: Keys.menuBarIcon).flatMap(MenuBarIcon.init(rawValue:)) ?? .surabar
         accent = defaults.string(forKey: Keys.accent).flatMap(ReaderAccent.init(rawValue:)) ?? .system
         customAccent = defaults.string(forKey: Keys.customAccent).flatMap(AccentRGB.init(hex:)) ?? .default
@@ -373,6 +393,7 @@ final class AppState {
         keepOnTop = defaults.object(forKey: Keys.keepOnTop) as? Bool ?? true
         isDetached = defaults.bool(forKey: Keys.detached)
         showTranslation = defaults.object(forKey: Keys.translation) as? Bool ?? true
+        translationKey = defaults.string(forKey: Keys.translationKey)
         script = defaults.string(forKey: Keys.script) ?? "uthmani"
         pages = defaults.dictionary(forKey: Keys.pages) as? [String: Int] ?? [:]
         selectedAyah = defaults.string(forKey: Keys.selection).flatMap(AyahKey.init(string:)) ?? AyahKey(surah: 1, ayah: 1)
@@ -380,6 +401,7 @@ final class AppState {
         let storedSpeed = defaults.double(forKey: Keys.speed)
         speed = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].contains(storedSpeed) ? storedSpeed : 1
         repeatPause = min(max(defaults.double(forKey: Keys.repeatPause), 0), 5)
+        volume = min(max(defaults.object(forKey: Keys.volume) as? Double ?? 1, 0), 1)
         lastPlayedAyah = defaults.string(forKey: Keys.lastPlayed).flatMap(AyahKey.init(string:))
     }
 }

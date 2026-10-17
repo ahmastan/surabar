@@ -9,10 +9,16 @@ enum ReaderLayout {
     static let translationHeight = 88.0
     static let playerHeight = 110.0
     /// The now-playing card above the player in "Player only" mode.
-    static let nowPlayingHeight = 70.0
+    static let nowPlayingHeight = 36.0
     /// "Player only": the header, the now-playing card, and the player, with their dividers.
     static let playerOnlyHeight = headerHeight + 1 + nowPlayingHeight + 1 + playerHeight
     static let settingsTabsHeight = 58.0
+    /// The page sits on a rounded "paper" card this far from the window's sides.
+    static let pageInset = 8.0
+    static let pageCornerRadius = 14.0
+
+    /// The page's width in a window of `width`.
+    static func pageWidth(_ width: Double) -> Double { width - 2 * pageInset }
     /// Space kept free between the reader and the bottom of the screen.
     static let screenMargin = 16.0
     static let minimumWidth = 320.0

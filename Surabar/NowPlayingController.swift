@@ -12,6 +12,11 @@ final class NowPlayingController {
     private let surahName: (Int) -> String
     /// Set once recitation has played, so Surabar does not claim the media keys before it is used.
     private var hasPlayed = false
+    /// The app icon, shown as the artwork.
+    private let artwork: MPMediaItemArtwork = {
+        let icon = NSApp.applicationIconImage ?? NSImage()
+        return MPMediaItemArtwork(boundsSize: NSSize(width: 512, height: 512)) { _ in icon }
+    }()
 
     init(player: RecitationPlayer, state: AppState, surahName: @escaping (Int) -> String) {
         self.player = player
@@ -89,6 +94,7 @@ final class NowPlayingController {
             MPNowPlayingInfoPropertyPlaybackRate: player.status == .playing ? state.speed : 0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: state.speed,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPMediaItemPropertyArtwork: artwork,
         ]
         center.playbackState = player.isActive ? .playing : .paused
     }
