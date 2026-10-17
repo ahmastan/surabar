@@ -23,6 +23,7 @@ struct MushafPageView: NSViewRepresentable {
 
     func updateNSView(_ view: MushafPageNSView, context: Context) {
         // Reading these registers SwiftUI observation, so the view redraws when they change.
+        view.turn = (model.lastTurn, context.environment.accessibilityReduceMotion)
         view.update(content: content, script: model.state.script, selection: model.state.selectedAyah, theme: theme,
                     accent: accent, pageFonts: model.usesPageFonts,
                     marks: (model.annotations?.highlights, model.annotations?.notes.count))
@@ -45,6 +46,9 @@ final class MushafPageNSView: NSView {
         self.content = content
         super.init(frame: .zero)
         wantsLayer = true
+        // Redraws keep the page sharp while a transition's snapshot animates.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        clipsToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -58,6 +62,20 @@ final class MushafPageNSView: NSView {
         let marksChanged = drawnSelection != nil && (drawnSelection != selection || drawnHighlights != marks.highlights?.count)
         drawnSelection = selection
         drawnHighlights = marks.highlights?.count
+        // A page turn slides the new page in with Core Animation's push transition, which snapshots the old
+        // page and animates in the render server: the view does not move, so AppKit does not recompute the
+        // window's hover regions (and reset the pointer) on every frame of the slide.
+        var turning = false
+        if case .page(let new) = content, case .page(let old) = self.content, new != old, turn.direction != 0, let layer {
+            turning = true
+            let slide = CATransition()
+            slide.type = turn.reduceMotion ? .fade : .push
+            // The next page arrives from the left (the mushaf reads right to left).
+            slide.subtype = turn.direction > 0 ? .fromLeft : .fromRight
+            slide.duration = turn.reduceMotion ? 0.15 : 0.26
+            slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(slide, forKey: "turn")
+        }
         self.content = content
         self.theme = theme
         self.accent = accent
@@ -66,7 +84,7 @@ final class MushafPageNSView: NSView {
         case .page(let page): setAccessibilityLabel("Mushaf page \(page)")
         case .manzil(let passage): setAccessibilityLabel("Manzil passage \(passage + 1)")
         }
-        if marksChanged, let layer {
+        if marksChanged, !turning, let layer {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.16
@@ -75,6 +93,8 @@ final class MushafPageNSView: NSView {
         needsDisplay = true
     }
 
+    /// The direction of the last page change (+1 forward, −1 back, 0 none) and whether to reduce motion.
+    var turn: (direction: Int, reduceMotion: Bool) = (0, false)
     private var drawnSelection: AyahKey?
     private var drawnHighlights: Int?
 

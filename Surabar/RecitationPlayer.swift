@@ -26,6 +26,10 @@ final class RecitationPlayer {
     /// Position within the current ayah, in seconds.
     private(set) var elapsed: Double = 0
     private(set) var duration: Double = 0
+
+    /// The fraction of the current ayah played, as last measured (once a second, and at every change).
+    /// The progress line animates on from there by itself while playing.
+    var progressFraction: Double { duration > 0 ? min(max(elapsed / duration, 0), 1) : 0 }
     private(set) var reciters: [Reciter]
 
     /// Called when playback moves to another ayah, so the reader can follow along.
@@ -472,7 +476,9 @@ final class RecitationPlayer {
             let failed = player.currentItem?.status == .failed
             Task { @MainActor in self?.timeControlChanged(control, itemFailed: failed) }
         }
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] time in
+        // Once a second: the position for the audio cache and accessibility. Ayah ends use boundary
+        // observers, and the progress line animates by itself, so nothing needs a faster tick.
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 1), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time) }
         }
     }
@@ -490,8 +496,11 @@ final class RecitationPlayer {
 
     private func tick(_ time: CMTime) {
         guard let segment else { return }
-        duration = segment.to - segment.from
-        elapsed = min(max(time.seconds - segment.from, 0), duration)
+        // Observers are told of every assignment, so only assign changes.
+        let length = segment.to - segment.from
+        if duration != length { duration = length }
+        let position = min(max(time.seconds - segment.from, 0), length)
+        if abs(position - elapsed) > 0.01 { elapsed = position }
         // The cache fetches a few minutes past this point.
         if let total = player.currentItem?.duration.seconds, total.isFinite, total > 0, let url = currentURL {
             audio.setPlayhead(time.seconds / total, of: url)

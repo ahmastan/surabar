@@ -47,7 +47,9 @@ struct ReaderView: View {
                             }
                         }
                         .background(palette.page)
-                        .overlay(alignment: .bottom) { backToPlaying }
+                        .overlay(alignment: .bottom) {
+                            if let player { BackToPlaying(model: model, player: player, palette: palette) }
+                        }
                         overlay
                     }
                     .clipShape(RoundedRectangle(cornerRadius: ReaderLayout.pageCornerRadius, style: .continuous))
@@ -65,7 +67,6 @@ struct ReaderView: View {
         .foregroundStyle(palette.ink)
         .tint(palette.accent)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: model.overlay)
-        .animation(reduceMotion ? nil : Motion.quick, value: showsBackToPlaying)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: state.isShowingSettings)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: state.viewMode)
         .animation(Motion.standard(reduceMotion: reduceMotion), value: model.readingManzil)
@@ -84,16 +85,10 @@ struct ReaderView: View {
         }
     }
 
-    /// The page, sliding in from the left when moving forward through the mushaf (right to left) and from
-    /// the right when moving back; a quick fade with Reduce Motion.
+    /// The page. It slides in from the left when moving forward through the mushaf (right to left) and
+    /// from the right when moving back (a fade with Reduce Motion); the page view animates that itself.
     private var page: some View {
         MushafPageView(model: model, content: .page(model.pageNumber), theme: state.theme, accent: palette.accentColor)
-            .id("\(model.state.script):\(model.pageNumber)")
-            .transition(reduceMotion ? .opacity : .asymmetric(
-                insertion: .push(from: model.lastTurn > 0 ? .leading : .trailing),
-                removal: .push(from: model.lastTurn > 0 ? .leading : .trailing)))
-            .animation(model.lastTurn == 0 ? nil : reduceMotion ? .easeInOut(duration: 0.15) : Motion.page, value: model.pageNumber)
-            .clipped()
             .accessibilityLabel("Mushaf page \(model.pageNumber)")
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -117,17 +112,7 @@ struct ReaderView: View {
         HStack(spacing: 2) {
             Button { toggle(.surahPicker) } label: {
                 HStack(spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        if model.readingManzil {
-                            Text("Manzil").font(.headline).lineLimit(1)
-                            Text("18 passages").font(.caption).foregroundStyle(palette.secondary)
-                        } else {
-                            Text(model.currentSurah?.nameSimple ?? "Surabar").font(.headline).lineLimit(1)
-                            if let surah = model.currentSurah, let info = model.pageInfo {
-                                Text("Surah \(surah.number) · Juz \(info.juz)").font(.caption).foregroundStyle(palette.secondary)
-                            }
-                        }
-                    }
+                    HeaderTitle(model: model, palette: palette)
                     Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(palette.secondary)
                 }
                 .contentShape(Rectangle())
@@ -135,7 +120,7 @@ struct ReaderView: View {
             .buttonStyle(.plain)
             .disabled(model.library == nil)
             .help("Go to a surah or juz")
-            .accessibilityLabel("Go to a surah or juz. Current surah \(model.currentSurah?.nameSimple ?? "")")
+            .accessibilityLabel("Go to a surah or juz")
             .popover(isPresented: popoverBinding(.surahPicker), arrowEdge: .bottom) {
                 SurahPicker(model: model, palette: palette, downloads: downloads, reciter: player?.reciter).frame(width: 300, height: 380)
             }
@@ -234,31 +219,6 @@ struct ReaderView: View {
     }
 
     // MARK: Overlays and states
-
-    private var showsBackToPlaying: Bool {
-        guard let player, player.isActive, let ayah = player.ayah else { return false }
-        return !model.followsPlayback && !(model.isOnPage(ayah) && model.state.selectedAyah == ayah)
-    }
-
-    /// Shown over the page bottom while recitation plays elsewhere, as Maps offers to re-centre.
-    @ViewBuilder private var backToPlaying: some View {
-        if showsBackToPlaying, let ayah = player?.ayah {
-            Button { model.returnToPlayback(at: ayah) } label: {
-                Label("Back to playing \(ayah.description)", systemImage: "arrow.uturn.backward")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(palette.onAccent)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .contentShape(Capsule())
-                    // Tinted glass suggests prominence (Apple's guidance for custom glass).
-                    .surface(palette.glass, in: Capsule(), interactive: true, tint: palette.accent)
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, ReaderLayout.footerHeight + 10)
-            .help("Show the ayah being recited and follow it again")
-            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)).combined(with: .move(edge: .bottom)))
-        }
-    }
 
     @ViewBuilder private var overlay: some View {
         switch state.viewMode == .playerOnly ? nil : model.overlay {
@@ -416,5 +376,64 @@ private extension View {
     func overlayCard(_ palette: ReaderPalette) -> some View {
         self.surface(palette.glass, in: RoundedRectangle(cornerRadius: ReaderLayout.pageCornerRadius - 4, style: .continuous))
             .padding(6)
+    }
+}
+
+// The selected ayah changes with every recited ayah. Only these small views read it, so the rest of the
+// reader (its header, player, and their glass) is not re-evaluated each time.
+
+/// The header's title: the current surah and juz, or the Manzil.
+private struct HeaderTitle: View {
+    let model: ReaderModel
+    let palette: ReaderPalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if model.readingManzil {
+                Text("Manzil").font(.headline).lineLimit(1)
+                Text("18 passages").font(.caption).foregroundStyle(palette.secondary)
+            } else {
+                Text(model.currentSurah?.nameSimple ?? "Surabar").font(.headline).lineLimit(1)
+                if let surah = model.currentSurah, let info = model.pageInfo {
+                    Text("Surah \(surah.number) · Juz \(info.juz)").font(.caption).foregroundStyle(palette.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Shown over the page bottom while recitation plays elsewhere, as Maps offers to re-centre.
+private struct BackToPlaying: View {
+    let model: ReaderModel
+    let player: RecitationPlayer
+    let palette: ReaderPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var shows: Bool {
+        guard player.isActive, let ayah = player.ayah else { return false }
+        return !model.followsPlayback && !(model.isOnPage(ayah) && model.state.selectedAyah == ayah)
+    }
+
+    var body: some View {
+        ZStack {
+            if shows, let ayah = player.ayah {
+                Button { model.returnToPlayback(at: ayah) } label: {
+                    Label("Back to playing \(ayah.description)", systemImage: "arrow.uturn.backward")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(palette.onAccent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .contentShape(Capsule())
+                        // Tinted glass suggests prominence (Apple's guidance for custom glass).
+                        .surface(palette.glass, in: Capsule(), interactive: true, tint: palette.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, ReaderLayout.footerHeight + 10)
+                .help("Show the ayah being recited and follow it again")
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)).combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.quick, value: shows)
     }
 }

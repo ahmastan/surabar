@@ -58,23 +58,20 @@ struct PlayerView: View {
             .font(.caption)
             .accessibilityElement(children: .combine)
         } else {
-            ProgressBar(fraction: player.duration > 0 ? player.elapsed / player.duration : 0, palette: palette,
-                        seek: player.seek(toFraction:))
+            ProgressBar(player: player, speed: model.state.speed, palette: palette)
         }
     }
 
-    /// Where the transport starts from: the recited (or paused) ayah, otherwise the selection.
-    private var position: AyahKey { player.ayah ?? model.state.selectedAyah }
-
+    /// The transport does not depend on the ayah being recited: its targets are worked out when a button
+    /// is pressed. Otherwise every new ayah would rebuild its glass, briefly costing tens of megabytes
+    /// of graphics memory.
     private var transport: some View {
-        let unit = model.state.skipUnit
-        let back = model.skipTarget(from: position, direction: -1, unit: unit)
-        let forward = model.skipTarget(from: position, direction: 1, unit: unit)
+        let unitName = player.inManzil ? "passage" : model.state.skipUnit.title.lowercased()
         // Two clusters either side of a prominent play button, as in Music's player on macOS 26.
         return HStack(spacing: 10) {
             ControlCluster(style: palette.glass) {
-                transportButton(skipBackLabel(target: back), symbol: "backward.end.fill", size: 12, disabled: back == nil) {
-                    if let back { player.skip(to: back) }
+                transportButton("Start of this \(unitName), or the previous one (⌘→)", symbol: "backward.end.fill", size: 12) {
+                    skip(-1)
                 }
                 transportButton("Previous ayah (⌥→)", symbol: "backward.fill", size: 14) {
                     player.stepAyah(-1, from: model.state.selectedAyah)
@@ -100,25 +97,19 @@ struct PlayerView: View {
                 transportButton("Next ayah (⌥←)", symbol: "forward.fill", size: 14) {
                     player.stepAyah(1, from: model.state.selectedAyah)
                 }
-                transportButton(player.inManzil ? "Next passage (⌘←)" : "Next \(unit.title.lowercased()) (⌘←)", symbol: "forward.end.fill", size: 12, disabled: forward == nil) {
-                    if let forward { player.skip(to: forward) }
+                transportButton("Next \(unitName) (⌘←)", symbol: "forward.end.fill", size: 12) {
+                    skip(1)
                 }
             }
         }
     }
 
-    /// Back goes to the start of the current surah or page first, as a media player's Previous does.
-    private func skipBackLabel(target: AyahKey?) -> String {
-        if player.inManzil {
-            let restarts = target != nil && target == Manzil.passage(containing: position).map { Manzil.passages[$0].lowerBound }
-            return (restarts ? "Start of passage" : "Previous passage") + " (⌘→)"
+    /// Back goes to the start of the current surah, page, or passage first, as a media player's Previous does.
+    private func skip(_ direction: Int) {
+        let position = player.ayah ?? model.state.selectedAyah
+        if let target = model.skipTarget(from: position, direction: direction, unit: model.state.skipUnit) {
+            player.skip(to: target)
         }
-        let unit = model.state.skipUnit
-        let restarts = switch unit {
-        case .surah: target?.surah == position.surah
-        case .page: target != nil && target == model.pageRange(of: position)?.lowerBound
-        }
-        return (restarts ? "Start of \(unit.title.lowercased())" : "Previous \(unit.title.lowercased())") + " (⌘→)"
     }
 
     private func transportButton(_ label: String, symbol: String, size: CGFloat, disabled: Bool = false,
@@ -441,34 +432,123 @@ private struct OptionRowStyle: ButtonStyle {
     }
 }
 
-/// A thin progress track; clicking or dragging seeks.
+/// A thin progress line through the current ayah; clicking or dragging seeks. While playing, the line is
+/// a Core Animation fill that runs to the end of the ayah by itself, so the app does no work per frame;
+/// it is re-aimed only when the position is measured (once a second) or playback changes.
 struct ProgressBar: View {
-    let fraction: Double
+    let player: RecitationPlayer
+    let speed: Double
     let palette: ReaderPalette
-    let seek: (Double) -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(palette.secondary.opacity(0.25)).frame(height: 3)
-                Capsule().fill(palette.accent).frame(width: geometry.size.width * min(max(fraction, 0), 1), height: 3)
-                    .animation(.linear(duration: 0.1), value: fraction)
+        let fraction = player.progressFraction
+        ProgressLine(fraction: fraction,
+                     secondsLeft: player.status == .playing && player.duration > 0 ? (1 - fraction) * player.duration / max(speed, 0.1) : nil,
+                     fill: palette.accentColor, track: NSColor(palette.secondary).withAlphaComponent(0.25),
+                     seek: player.seek(toFraction:))
+            .frame(height: 12)
+            .accessibilityElement()
+            .accessibilityLabel("Position in the ayah")
+            .accessibilityValue("\(Int(fraction * 100)) percent")
+            // VoiceOver: step through the ayah a tenth at a time.
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: player.seek(toFraction: min(fraction + 0.1, 0.99))
+                case .decrement: player.seek(toFraction: max(fraction - 0.1, 0))
+                @unknown default: break
+                }
             }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onEnded { seek($0.location.x / max(geometry.size.width, 1)) })
+    }
+}
+
+private struct ProgressLine: NSViewRepresentable {
+    let fraction: Double
+    /// Seconds until the ayah ends while playing; nil while paused or stopped.
+    let secondsLeft: Double?
+    let fill: NSColor
+    let track: NSColor
+    let seek: (Double) -> Void
+
+    func makeNSView(context: Context) -> ProgressLineView { ProgressLineView() }
+
+    func updateNSView(_ view: ProgressLineView, context: Context) {
+        view.seek = seek
+        view.update(fraction: fraction, secondsLeft: secondsLeft, fill: fill, track: track)
+    }
+}
+
+final class ProgressLineView: NSView {
+    var seek: ((Double) -> Void)?
+    private let trackLayer = CALayer()
+    private let fillLayer = CALayer()
+    private var fraction = 0.0
+    private var secondsLeft: Double?
+    private var colors: (fill: NSColor, track: NSColor) = (.controlAccentColor, .tertiaryLabelColor)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(trackLayer)
+        layer?.addSublayer(fillLayer)
+        fillLayer.anchorPoint = CGPoint(x: 0, y: 0.5)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func update(fraction: Double, secondsLeft: Double?, fill: NSColor, track: NSColor) {
+        self.fraction = fraction
+        self.secondsLeft = secondsLeft
+        colors = (fill, track)
+        layoutLine()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutLine()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layoutLine()
+    }
+
+    private func layoutLine() {
+        let height = 3.0
+        let line = CGRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            trackLayer.backgroundColor = colors.track.cgColor
+            fillLayer.backgroundColor = colors.fill.cgColor
         }
-        .frame(height: 12)
-        .accessibilityElement()
-        .accessibilityLabel("Position in the ayah")
-        .accessibilityValue("\(Int(fraction * 100)) percent")
-        // VoiceOver: step through the ayah a tenth at a time.
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: seek(min(fraction + 0.1, 0.99))
-            case .decrement: seek(max(fraction - 0.1, 0))
-            @unknown default: break
-            }
+        trackLayer.frame = line
+        trackLayer.cornerRadius = height / 2
+        fillLayer.cornerRadius = height / 2
+        fillLayer.bounds = CGRect(x: 0, y: 0, width: line.width * fraction, height: height)
+        fillLayer.position = CGPoint(x: line.minX, y: line.midY)
+        fillLayer.removeAnimation(forKey: "progress")
+        if let secondsLeft, secondsLeft > 0, line.width > 0 {
+            // Runs in the render server: the fill grows to the end of the ayah as it plays.
+            let grow = CABasicAnimation(keyPath: "bounds.size.width")
+            grow.fromValue = line.width * fraction
+            grow.toValue = line.width
+            grow.duration = secondsLeft
+            grow.fillMode = .forwards
+            grow.isRemovedOnCompletion = false
+            // A slow line needs few frames; at the display's full rate, every frame would also make the
+            // window server recompute the glass around it.
+            grow.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 15)
+            fillLayer.add(grow, forKey: "progress")
         }
+        CATransaction.commit()
+    }
+
+    override func mouseDown(with event: NSEvent) { seekTo(event) }
+    override func mouseDragged(with event: NSEvent) { seekTo(event) }
+
+    private func seekTo(_ event: NSEvent) {
+        guard bounds.width > 0 else { return }
+        seek?(min(max(convert(event.locationInWindow, from: nil).x / bounds.width, 0), 1))
     }
 }

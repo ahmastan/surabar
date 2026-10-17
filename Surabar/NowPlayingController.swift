@@ -85,7 +85,7 @@ final class NowPlayingController {
         guard hasPlayed, let step = player.step else { return }
         let ayah = step.ayah
         let title = step.kind == .basmalah ? "\(surahName(ayah.surah)) · Basmalah" : "\(surahName(ayah.surah)) · Ayah \(ayah.ayah)"
-        center.nowPlayingInfo = [
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyArtist: player.reciter.displayName,
             MPMediaItemPropertyAlbumTitle: "Surah \(ayah.surah) · \(surahName(ayah.surah))",
@@ -94,8 +94,9 @@ final class NowPlayingController {
             MPNowPlayingInfoPropertyPlaybackRate: player.status == .playing ? state.speed : 0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: state.speed,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
-            MPMediaItemPropertyArtwork: artwork,
         ]
+        info[MPMediaItemPropertyArtwork] = artwork
+        center.nowPlayingInfo = info
         center.playbackState = player.isActive ? .playing : .paused
     }
 }

@@ -81,8 +81,6 @@ enum Motion {
     static let standard = Animation.smooth(duration: 0.28)
     /// Small state changes: buttons, badges, the "Back to playing" pill.
     static let quick = Animation.smooth(duration: 0.18)
-    /// Turning a page.
-    static let page = Animation.smooth(duration: 0.26)
 
     static func standard(reduceMotion: Bool) -> Animation? { reduceMotion ? .easeInOut(duration: 0.15) : standard }
 

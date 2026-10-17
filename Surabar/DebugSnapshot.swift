@@ -207,7 +207,10 @@ enum DebugPlaybackProbe {
             window.contentView = view
             window.orderFrontRegardless()
             var juz = false
-            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            // SURABAR_PROBE_UI=static: the reader stays as it is (no picker toggling).
+            let toggles = ProcessInfo.processInfo.environment["SURABAR_PROBE_UI"] != "static"
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: toggles) { _ in
+                guard toggles else { return }
                 MainActor.assumeIsolated {
                     let start = CACurrentMediaTime()
                     if model.overlay == nil {

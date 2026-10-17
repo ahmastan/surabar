@@ -28,7 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let store = model.store {
             let counts = store.surahs.map(\.ayahCount)
             let timings = TimingsStore(ayahCounts: counts)
+            #if DEBUG
+            // SURABAR_MEASURE_AUDIO_DIR keeps measurement downloads out of the app's audio folder.
+            let audio = ProcessInfo.processInfo.environment["SURABAR_MEASURE_AUDIO_DIR"].map { AudioCache(root: URL(fileURLWithPath: $0)) }
+                ?? AudioCache()
+            #else
             let audio = AudioCache()
+            #endif
             let player = RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
                                           timings: timings, audio: audio)
             downloads = DownloadCenter(audio: audio, timings: timings, state: state)
@@ -68,6 +74,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let handled = MainActor.assumeIsolated { self?.handleKey(event) ?? false }
             return handled ? nil : event
         }
+        #if DEBUG
+        // SURABAR_MEASURE=play: recites (muted) with the reader closed, for measuring CPU and memory.
+        // SURABAR_MEASURE=open-play: the same with the reader open; =open: the reader open, idle.
+        let measure = ProcessInfo.processInfo.environment["SURABAR_MEASURE"] ?? ""
+        if measure.hasSuffix("play"), let player {
+            let start = Date()
+            let follow = player.onAyahChange
+            // SURABAR_MEASURE_LOG=<file>: each ayah change, with the time since launch.
+            let log = ProcessInfo.processInfo.environment["SURABAR_MEASURE_LOG"].flatMap { path -> FileHandle? in
+                FileManager.default.createFile(atPath: path, contents: nil)
+                return FileHandle(forWritingAtPath: path)
+            }
+            player.onAyahChange = { ayah in
+                log?.write(Data(String(format: "%.1f s: ayah %@\n", Date().timeIntervalSince(start), ayah.description).utf8))
+                follow?(ayah)
+            }
+            player.debugQueuePlayer.isMuted = true
+            player.play(from: AyahKey(surah: 2, ayah: 1))
+        }
+        // SURABAR_MEASURE=download: downloads Al-Baqarah for the current reciter (with SURABAR_MEASURE_AUDIO_DIR).
+        if measure == "download", let downloads, let player { downloads.download(surahs: [2], reciter: player.reciter) }
+        if measure.hasPrefix("open") || measure == "read", let button = statusItem.button {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.reader.open(from: button) }
+        }
+        // SURABAR_MEASURE=read: the reader open, turning a page every third of a second from page 1, 120 times.
+        if measure == "read" {
+            model.goToPage(1)
+            Task { @MainActor in
+                for _ in 0 ..< 120 {
+                    try? await Task.sleep(for: .milliseconds(330))
+                    self.model.turnPage(1)
+                }
+            }
+        }
+        #endif
         // Running from Xcode opens the reader straight away, which makes development faster.
         if ProcessInfo.processInfo.environment["SURABAR_OPEN_ON_LAUNCH"] == "1", let button = statusItem.button {
             DispatchQueue.main.async { self.reader.open(from: button) }

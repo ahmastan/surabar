@@ -435,6 +435,15 @@ final class AudioCache: NSObject, @unchecked Sendable {
         let offset = Int(dataRequest.currentOffset)
         guard offset < end else { return complete(job, error: nil) }
         let chunk = CachedAudioState.chunk(containing: offset)
+        // Open-ended reads stop `readAhead` past the playhead (or where the read began) until it moves on,
+        // for stored chunks too: the player keeps what it is given in memory, so giving it a whole stored
+        // recording would hold all of it. Until the recording plays, two chunks.
+        let windowEnd = playheads[job.key].map { CachedAudioState.chunk(containing: max($0, job.startOffset) + Self.readAhead) + 1 }
+            ?? CachedAudioState.chunk(containing: job.startOffset) + 2
+        if dataRequest.requestsAllDataToEndOfResource, chunk >= windowEnd {
+            job.parked = true
+            return
+        }
         if state.chunks.contains(chunk) {
             files[job.key]?.lastUsed = Date()
             guard let data = read(job.key, offset ..< min(state.byteRange(ofChunk: chunk).upperBound, end)), !data.isEmpty else {
@@ -444,20 +453,7 @@ final class AudioCache: NSObject, @unchecked Sendable {
             queue.async { self.process(job) }
             return
         }
-        // Open-ended reads stop `readAhead` past the playhead (or where the read began) until it moves on.
-        // Until the recording plays (the player reads its opening, or queues the next surah), two chunks.
-        let limit: Int
-        if dataRequest.requestsAllDataToEndOfResource {
-            let windowEnd = playheads[job.key].map { CachedAudioState.chunk(containing: max($0, job.startOffset) + Self.readAhead) + 1 }
-                ?? CachedAudioState.chunk(containing: job.startOffset) + 2
-            guard chunk < windowEnd else {
-                job.parked = true
-                return
-            }
-            limit = windowEnd
-        } else {
-            limit = CachedAudioState.chunk(containing: end - 1) + 1
-        }
+        let limit = dataRequest.requestsAllDataToEndOfResource ? windowEnd : CachedAudioState.chunk(containing: end - 1) + 1
         ensure(key: job.key, url: job.url, chunk: chunk, limit: limit) { [weak self] error in
             self?.continueJob(job, error: error)
         }
