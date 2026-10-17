@@ -141,7 +141,7 @@ struct SettingsView: View {
             }
             Divider()
             SettingsRow("Pause between repeats", palette: palette,
-                        footnote: "Used when the Loop button repeats an ayah, surah, or page.") {
+                        footnote: "The Loop button's defaults: each ayah, or the whole surah or page, plays this many times.") {
                 Picker("Pause between repeats", selection: $state.repeatPause) {
                     ForEach(0 ... 5, id: \.self) { seconds in
                         Text(seconds == 0 ? "None" : "\(seconds) s").tag(Double(seconds))

@@ -1,4 +1,5 @@
 import Foundation
+import MushafRendering
 import Recitation
 import Testing
 @testable import Surabar
@@ -32,5 +33,73 @@ struct PlaybackPreferenceTests {
         #expect(relaunched.lastPlayedAyah == .init(surah: 2, ayah: 255))
         defaults.set(3.0, forKey: "playbackSpeed")
         #expect(AppState(defaults: defaults).speed == 1)
+    }
+}
+
+@MainActor
+struct LoopTests {
+    private func makePlayer() -> (AppState, RecitationPlayer) {
+        let name = "SurabarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let state = AppState(defaults: defaults)
+        let counts = [7, 286, 200]
+        return (state, RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled()))
+    }
+
+    @Test func loopCyclesAndPersists() {
+        let (state, player) = makePlayer()
+        #expect(state.loopMode == .off)
+        player.cycleLoop()
+        #expect(state.loopMode == .ayah)
+        player.cycleLoop()
+        #expect(state.loopMode == .unit)
+        player.cycleLoop()
+        #expect(state.loopMode == .off)
+    }
+
+    @Test func loopModesShapeThePlaybackSequence() {
+        let (state, player) = makePlayer()
+        let ayah = AyahKey(surah: 2, ayah: 255)
+        var sequence = player.sequence(at: ayah)
+        #expect(sequence.ayahRepeats == .times(1) && sequence.range == nil)
+        #expect(sequence.boundaryEnd == AyahKey(surah: 2, ayah: 286), "without a loop, playback stops at the surah end")
+
+        state.repeatCount = 3
+        player.setLoop(.ayah)
+        sequence = player.sequence(at: ayah)
+        #expect(sequence.ayahRepeats == .times(3) && sequence.range == nil)
+
+        state.repeatCount = 0
+        player.setLoop(.unit)
+        sequence = player.sequence(at: ayah)
+        #expect(sequence.range == AyahKey(surah: 2, ayah: 1) ... AyahKey(surah: 2, ayah: 286))
+        #expect(sequence.rangeRepeats == .forever && sequence.ayahRepeats == .times(1))
+    }
+
+    @Test func surahLoopStartedMidSurahCountsFullPasses() {
+        let (state, player) = makePlayer()
+        state.repeatCount = 2
+        player.setLoop(.unit)
+        player.skip(to: AyahKey(surah: 1, ayah: 6))
+        let sequence = player.sequence(at: AyahKey(surah: 1, ayah: 7))
+        // The end of the partial pass loops back for two full passes.
+        #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 1, ayah: 7), repetition: 1), rangePass: 0)?.rangePass == 1)
+        #expect(sequence.step(after: PlaybackStep(kind: .ayah, ayah: AyahKey(surah: 1, ayah: 7), repetition: 1), rangePass: 2) == nil)
+    }
+
+    @Test func pageLoopStaysOnThePageWhereItStarted() {
+        let (state, player) = makePlayer()
+        let page = AyahKey(surah: 2, ayah: 253) ... AyahKey(surah: 2, ayah: 256)
+        player.pageRange = { $0.surah == 2 && $0.ayah >= 253 && $0.ayah <= 256 ? page : nil }
+        state.skipUnit = .page
+        player.setLoop(.unit)
+        player.skip(to: AyahKey(surah: 2, ayah: 255))
+        #expect(player.ayah == AyahKey(surah: 2, ayah: 255))
+        #expect(player.sequence(at: AyahKey(surah: 2, ayah: 256)).range == page)
+        // Moving off the page loops the new one instead.
+        player.pageRange = { _ in AyahKey(surah: 3, ayah: 1) ... AyahKey(surah: 3, ayah: 9) }
+        player.skip(to: AyahKey(surah: 3, ayah: 2))
+        #expect(player.sequence(at: AyahKey(surah: 3, ayah: 2)).range == AyahKey(surah: 3, ayah: 1) ... AyahKey(surah: 3, ayah: 9))
     }
 }

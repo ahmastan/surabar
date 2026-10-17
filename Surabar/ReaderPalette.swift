@@ -35,7 +35,7 @@ struct ReaderPalette {
     var onAccent: Color {
         guard let rgb = accentColor.usingColorSpace(.sRGB) else { return .white }
         let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
-        return luminance > 0.62 ? .black : .white
+        return luminance > 0.7 ? .black : .white
     }
 
     static func color(for accent: ReaderAccent, custom: AccentRGB, sepia: Bool = false) -> NSColor {

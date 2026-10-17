@@ -29,6 +29,10 @@ final class RecitationPlayer {
 
     /// Called when playback moves to another ayah, so the reader can follow along.
     @ObservationIgnored var onAyahChange: ((AyahKey) -> Void)?
+    /// Called when the user starts or moves playback, before the ayah changes, so the reader follows it again.
+    @ObservationIgnored var onUserAction: (() -> Void)?
+    /// The ayahs that start on the page where an ayah starts, in the current layout.
+    @ObservationIgnored var pageRange: ((AyahKey) -> ClosedRange<AyahKey>?)?
 
     /// One ayah or basmalah located in a surah recording.
     private struct Segment {
@@ -52,6 +56,9 @@ final class RecitationPlayer {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var retried = false
     @ObservationIgnored private var pendingTask: Task<Void, Never>?
+    /// The surah or page the Loop repeats, fixed where playback starts or the loop is turned on,
+    /// so the loop stays on it even when an ayah crosses a page.
+    @ObservationIgnored private var loopRange: ClosedRange<AyahKey>?
 
     init(state: AppState, ayahCounts: [Int], reciters: [Reciter], timings: TimingsStore? = nil) {
         self.state = state
@@ -77,7 +84,9 @@ final class RecitationPlayer {
     // MARK: Controls
 
     func play(from ayah: AyahKey) {
-        start(sequence().start(at: ayah), rangePass: 1)
+        onUserAction?()
+        anchorLoop(at: ayah)
+        start(sequence(at: ayah).start(at: ayah), rangePass: firstPass(at: ayah))
     }
 
     /// Resumes a paused ayah, or starts from `ayah` when nothing is paused there.
@@ -86,6 +95,7 @@ final class RecitationPlayer {
         case .playing, .loading:
             pause()
         case .paused where segment != nil && player.currentItem != nil && step?.ayah == ayah:
+            onUserAction?()
             player.playImmediately(atRate: Float(state.speed))
         default:
             play(from: ayah)
@@ -101,12 +111,55 @@ final class RecitationPlayer {
     /// Moves to the next (+1) or previous (−1) ayah, skipping any remaining repeats.
     func stepAyah(_ direction: Int, from fallback: AyahKey) {
         let current = step?.ayah ?? fallback
-        guard let target = direction > 0 ? sequence().ayah(after: current) : sequence().ayah(before: current) else { return }
-        let next = PlaybackStep(kind: .ayah, ayah: target, repetition: 1)
-        if isActive {
-            start(next, rangePass: 1)
-        } else {
-            stop(at: next)
+        let sequence = sequence(at: current)
+        guard let target = direction > 0 ? sequence.ayah(after: current) : sequence.ayah(before: current) else { return }
+        move(to: PlaybackStep(kind: .ayah, ayah: target, repetition: 1))
+    }
+
+    /// Moves to an ayah chosen by the skip buttons: it plays from there (with the basmalah at a
+    /// surah's start) when playing, otherwise it becomes the paused position.
+    func skip(to ayah: AyahKey) {
+        move(to: isActive ? sequence(at: ayah).start(at: ayah) : PlaybackStep(kind: .ayah, ayah: ayah, repetition: 1))
+    }
+
+    private func move(to step: PlaybackStep) {
+        onUserAction?()
+        anchorLoop(at: step.ayah)
+        if isActive { start(step, rangePass: firstPass(at: step.ayah)) } else { stop(at: step) }
+    }
+
+    /// Off → repeat ayah → repeat surah or page → off.
+    func cycleLoop() {
+        setLoop(state.loopMode.next)
+    }
+
+    func setLoop(_ mode: LoopMode) {
+        state.loopMode = mode
+        loopRange = nil
+        guard let ayah = step?.ayah else { return }
+        anchorLoop(at: ayah)
+        if let segment {
+            self.segment = Segment(step: segment.step, rangePass: firstPass(at: ayah), url: segment.url, from: segment.from, to: segment.to)
+        }
+    }
+
+    /// Repeating a surah or page counts full passes: a pass started part-way through is pass 0.
+    private func firstPass(at ayah: AyahKey) -> Int {
+        guard state.loopMode == .unit, let loopRange, ayah != loopRange.lowerBound else { return 1 }
+        return 0
+    }
+
+    /// Fixes the surah or page to repeat when the loop repeats one and `ayah` is outside it.
+    private func anchorLoop(at ayah: AyahKey) {
+        guard state.loopMode == .unit else { loopRange = nil; return }
+        if let loopRange, loopRange.contains(ayah) { return }
+        loopRange = unitRange(of: ayah)
+    }
+
+    private func unitRange(of ayah: AyahKey) -> ClosedRange<AyahKey>? {
+        switch state.skipUnit {
+        case .surah: AyahKey(surah: ayah.surah, ayah: 1) ... AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1])
+        case .page: pageRange?(ayah)
         }
     }
 
@@ -129,7 +182,7 @@ final class RecitationPlayer {
         state.reciterID = id
         // Restart the current step in the new voice; a paused position stays paused.
         guard let current = step else { return }
-        if isActive { start(current, rangePass: segment?.rangePass ?? 1) } else { stop(at: current) }
+        if isActive { start(current, rangePass: segment?.rangePass ?? firstPass(at: current.ayah)) } else { stop(at: current) }
     }
 
     func retry() {
@@ -139,10 +192,21 @@ final class RecitationPlayer {
 
     // MARK: Sequencing
 
-    /// Playback currently stops at the end of the surah being played; Phase 6 adds the other boundaries.
-    private func sequence(endingWith ayah: AyahKey? = nil) -> PlaybackSequence {
-        let end = ayah.map { AyahKey(surah: $0.surah, ayah: ayahCounts[$0.surah - 1]) } ?? AyahKey(surah: 114, ayah: 6)
-        return PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: end)
+    /// The playback order around `ayah` with the current Loop settings. Without a loop, playback stops
+    /// at the end of the surah being played; Phase 6 adds the other boundaries.
+    func sequence(at ayah: AyahKey) -> PlaybackSequence {
+        var sequence = PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1]))
+        let count: RepeatCount = state.repeatCount == 0 ? .forever : .times(state.repeatCount)
+        switch state.loopMode {
+        case .off:
+            break
+        case .ayah:
+            sequence.ayahRepeats = count
+        case .unit:
+            sequence.range = loopRange ?? unitRange(of: ayah)
+            sequence.rangeRepeats = count
+        }
+        return sequence
     }
 
     private func segment(_ step: PlaybackStep, _ rangePass: Int, _ url: URL, _ span: SurahAudio.Span) -> Segment {
@@ -232,7 +296,7 @@ final class RecitationPlayer {
     /// The current ayah reached its end timestamp, or the recording ended.
     private func segmentEnded() {
         guard let current = segment, isActive else { return }
-        guard let next = sequence(endingWith: current.step.ayah).step(after: current.step, rangePass: current.rangePass) else {
+        guard let next = sequence(at: current.step.ayah).step(after: current.step, rangePass: current.rangePass) else {
             player.pause()
             status = .paused
             return
@@ -271,7 +335,7 @@ final class RecitationPlayer {
 
     /// Fetches the next step's timings and queues its recording when it is in another file.
     private func prepareFollowing(_ segment: Segment) {
-        guard let next = sequence(endingWith: segment.step.ayah).step(after: segment.step, rangePass: segment.rangePass) else { return }
+        guard let next = sequence(at: segment.step.ayah).step(after: segment.step, rangePass: segment.rangePass) else { return }
         let reciter = self.reciter
         Task { [weak self] in
             guard let self, let following = try? await resolve(next.step, rangePass: next.rangePass, reciter: reciter) else { return }

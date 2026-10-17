@@ -7,9 +7,11 @@ enum ReaderLayout {
     /// Three lines of translation text; longer translations scroll.
     static let translationTextHeight = 54.0
     static let translationHeight = 88.0
-    static let playerHeight = 104.0
-    /// "Player only": the header, its divider, and the player.
-    static let playerOnlyHeight = headerHeight + 1 + playerHeight
+    static let playerHeight = 110.0
+    /// The now-playing card above the player in "Player only" mode.
+    static let nowPlayingHeight = 70.0
+    /// "Player only": the header, the now-playing card, and the player, with their dividers.
+    static let playerOnlyHeight = headerHeight + 1 + nowPlayingHeight + 1 + playerHeight
     static let settingsTabsHeight = 58.0
     /// Space kept free between the reader and the bottom of the screen.
     static let screenMargin = 16.0

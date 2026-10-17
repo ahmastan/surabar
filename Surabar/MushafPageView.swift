@@ -110,6 +110,11 @@ final class MushafPageNSView: NSView {
         let menu = NSMenu()
         menu.addItem(withTitle: "Ayah \(ayah)", action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
+        if model.playAyah != nil {
+            let play = menu.addItem(withTitle: "Play from Here", action: #selector(playFromHere(_:)), keyEquivalent: "")
+            play.target = self
+            play.representedObject = ayah.description
+        }
         let copy = menu.addItem(withTitle: "Copy Ayah", action: #selector(copyAyah(_:)), keyEquivalent: "c")
         copy.target = self
         copy.representedObject = ayah.description
@@ -119,6 +124,10 @@ final class MushafPageNSView: NSView {
         withTranslation.representedObject = ayah.description
         withTranslation.isEnabled = model.library?.translation != nil
         return menu
+    }
+
+    @objc private func playFromHere(_ sender: NSMenuItem) {
+        if let ayah = (sender.representedObject as? String).flatMap(AyahKey.init(string:)) { model.playAyah?(ayah) }
     }
 
     @objc private func copyAyah(_ sender: NSMenuItem) {

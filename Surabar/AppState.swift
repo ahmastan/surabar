@@ -45,6 +45,29 @@ enum SkipUnit: String, CaseIterable, Identifiable {
     }
 }
 
+/// The Loop button's modes, cycled in this order. `unit` repeats the surah or page, following the skip unit.
+enum LoopMode: String, CaseIterable, Identifiable {
+    case off, ayah, unit
+
+    var id: Self { self }
+
+    var next: LoopMode {
+        switch self {
+        case .off: .ayah
+        case .ayah: .unit
+        case .unit: .off
+        }
+    }
+
+    func title(unit: SkipUnit) -> String {
+        switch self {
+        case .off: "Off"
+        case .ayah: "Ayah"
+        case .unit: unit.title
+        }
+    }
+}
+
 /// The accent colour: the system's, one of the eight macOS accent colours, or a custom colour.
 enum ReaderAccent: String, CaseIterable, Identifiable {
     case system, blue, purple, pink, red, orange, yellow, green, graphite, custom
@@ -116,6 +139,7 @@ final class AppState {
         static let viewMode = "viewMode"
         static let skipUnit = "skipUnit"
         static let repeatCount = "loopRepeatCount"
+        static let loopMode = "loopMode"
         static let keepOnTop = "keepDetachedWindowOnTop"
         static let detached = "readerDetached"
         static let translation = "showTranslation"
@@ -158,6 +182,10 @@ final class AppState {
     /// How many times the Loop button repeats: 2, 3, 5, or 10, or 0 for no limit.
     var repeatCount: Int {
         didSet { defaults.set(repeatCount, forKey: Keys.repeatCount) }
+    }
+
+    var loopMode: LoopMode {
+        didSet { defaults.set(loopMode.rawValue, forKey: Keys.loopMode) }
     }
 
     /// Settings shown in place of the reader. Not saved: the reader always opens on the mushaf.
@@ -227,6 +255,7 @@ final class AppState {
         skipUnit = defaults.string(forKey: Keys.skipUnit).flatMap(SkipUnit.init(rawValue:)) ?? .surah
         let storedCount = defaults.object(forKey: Keys.repeatCount) as? Int ?? 0
         repeatCount = Self.repeatCounts.contains(storedCount) ? storedCount : 0
+        loopMode = defaults.string(forKey: Keys.loopMode).flatMap(LoopMode.init(rawValue:)) ?? .off
         keepOnTop = defaults.object(forKey: Keys.keepOnTop) as? Bool ?? true
         isDetached = defaults.bool(forKey: Keys.detached)
         showTranslation = defaults.object(forKey: Keys.translation) as? Bool ?? true

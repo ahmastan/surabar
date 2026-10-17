@@ -17,6 +17,11 @@ final class ReaderModel {
     let library: QuranLibrary?
     let loadError: String?
     var overlay: Overlay?
+    /// Whether the page and selection follow the recited ayah. Turning pages, jumping, or selecting
+    /// another ayah stops following until playback is moved or "Back to playing" is chosen.
+    var followsPlayback = true
+    /// Starts recitation at an ayah (the page's "Play from Here"); set by the app.
+    @ObservationIgnored var playAyah: ((AyahKey) -> Void)?
     /// Downloadable page fonts by layout id, for layouts drawn with one font per page.
     let pageFonts: [String: PageFontStore]
 
@@ -145,6 +150,7 @@ final class ReaderModel {
 
     func goToPage(_ number: Int) {
         guard let layout else { return }
+        followsPlayback = false
         let page = min(max(number, 1), layout.pageCount)
         state.pages[layout.id] = page
         // Keep the selection on screen so the translation strip follows reading.
@@ -158,6 +164,7 @@ final class ReaderModel {
 
     func goTo(_ ayah: AyahKey) {
         guard let layout, let store, store.contains(ayah), let page = try? store.firstPage(of: ayah, in: layout) else { return }
+        followsPlayback = false
         state.pages[layout.id] = page
         state.selectedAyah = ayah
     }
@@ -180,11 +187,13 @@ final class ReaderModel {
     }
 
     func select(_ ayah: AyahKey) {
+        followsPlayback = false
         state.selectedAyah = ayah
     }
 
-    /// Recitation moved to another ayah: select it and turn to its page.
+    /// Recitation moved to another ayah: select it and turn to its page, unless the reader has browsed away.
     func followPlayback(to ayah: AyahKey) {
+        guard followsPlayback else { return }
         state.selectedAyah = ayah
         guard !isOnPage(ayah), let layout, let page = try? store?.firstPage(of: ayah, in: layout) else { return }
         state.pages[layout.id] = page
@@ -195,8 +204,54 @@ final class ReaderModel {
         guard let store else { return }
         let next = direction > 0 ? store.ayah(after: state.selectedAyah) : store.ayah(before: state.selectedAyah)
         guard let next, let layout, let pages = try? store.pages(containing: next, in: layout), let first = pages.first else { return }
+        followsPlayback = false
         state.selectedAyah = next
         if !pages.contains(pageNumber) { state.pages[layout.id] = direction > 0 ? first : pages.last ?? first }
+    }
+
+    /// "Back to playing": follow the recited ayah again and show it.
+    func returnToPlayback(at ayah: AyahKey) {
+        followsPlayback = true
+        followPlayback(to: ayah)
+    }
+
+    // MARK: Playback units
+
+    /// The ayahs that start on a page. An ayah continued from the previous page belongs to that page,
+    /// unless it fills this page entirely.
+    func ayahsStarting(onPage number: Int) -> ClosedRange<AyahKey>? {
+        guard let layout, let store, let info = try? store.pageInfo(number, of: layout) else { return nil }
+        var first = info.firstAyah
+        if (try? store.firstPage(of: first, in: layout)) != number, let next = store.ayah(after: first), next <= info.lastAyah {
+            first = next
+        }
+        return first ... info.lastAyah
+    }
+
+    /// The ayahs of the page where `ayah` starts, which the Loop repeats in page mode.
+    func pageRange(of ayah: AyahKey) -> ClosedRange<AyahKey>? {
+        guard let layout, let page = try? store?.firstPage(of: ayah, in: layout) else { return nil }
+        return ayahsStarting(onPage: page)
+    }
+
+    /// Where the player's outer skip buttons go from `ayah`. Forward (+1): the next surah or page.
+    /// Back (−1): the start of the current surah or page, or the previous one when already at its start.
+    func skipTarget(from ayah: AyahKey, direction: Int, unit: SkipUnit) -> AyahKey? {
+        switch unit {
+        case .surah:
+            if direction > 0 { return ayah.surah < 114 ? AyahKey(surah: ayah.surah + 1, ayah: 1) : nil }
+            if ayah.ayah > 1 { return AyahKey(surah: ayah.surah, ayah: 1) }
+            return ayah.surah > 1 ? AyahKey(surah: ayah.surah - 1, ayah: 1) : nil
+        case .page:
+            guard let layout, let store, var page = try? store.firstPage(of: ayah, in: layout) else { return nil }
+            if direction < 0, let start = ayahsStarting(onPage: page)?.lowerBound, start < ayah { return start }
+            page += direction
+            while (1 ... layout.pageCount).contains(page) {
+                if let start = ayahsStarting(onPage: page)?.lowerBound, direction > 0 ? start > ayah : start < ayah { return start }
+                page += direction
+            }
+            return nil
+        }
     }
 
     /// Switches script, staying on the selected ayah when it is visible, otherwise on the page's first ayah.

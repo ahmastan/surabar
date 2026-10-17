@@ -45,6 +45,7 @@ struct AppStateTests {
         first.viewMode = .playerOnly
         first.skipUnit = .page
         first.repeatCount = 5
+        first.loopMode = .ayah
         first.isShowingSettings = true
 
         let relaunched = AppState(defaults: defaults)
@@ -61,6 +62,7 @@ struct AppStateTests {
         #expect(relaunched.viewMode == .playerOnly)
         #expect(relaunched.skipUnit == .page)
         #expect(relaunched.repeatCount == 5)
+        #expect(relaunched.loopMode == .ayah)
         // The reader always reopens on the mushaf.
         #expect(!relaunched.isShowingSettings)
     }

@@ -9,7 +9,7 @@ import SwiftUI
 ///     SURABAR_SNAPSHOT=/tmp/reader.png SURABAR_SNAPSHOT_STATE="script=indopak ayah=2:255 size=L theme=dark overlay=jump" \
 ///       Surabar.app/Contents/MacOS/Surabar
 ///
-/// Also: `mode=player`, `settings=appearance|reading|player|general`, `accent=red` or `accent=#2E8B7A`.
+/// Also: `loop=off|ayah|unit`, `count=3`, `skip=page|surah`, `mode=player`, `settings=appearance|reading|player|general`, `accent=red` or `accent=#2E8B7A`.
 ///
 /// Uses its own settings domain, so the user's reading position and preferences are untouched.
 @MainActor
@@ -33,6 +33,9 @@ enum DebugSnapshot {
             case "theme": ReaderTheme(rawValue: parts[1]).map { state.theme = $0 }
             case "translation": state.showTranslation = parts[1] != "off"
             case "overlay": overlay = parts[1] == "jump" ? .jump : .surahPicker
+            case "loop": LoopMode(rawValue: parts[1]).map { state.loopMode = $0 }
+            case "count": Int(parts[1]).map { state.repeatCount = $0 }
+            case "skip": SkipUnit(rawValue: parts[1]).map { state.skipUnit = $0 }
             case "mode": state.viewMode = parts[1] == "player" ? .playerOnly : .quranAndPlayer
             case "settings":
                 state.isShowingSettings = true
@@ -90,7 +93,7 @@ enum DebugSnapshot {
 /// Debug builds only: plays recitation muted from an ayah and prints each ayah change with the
 /// recording's position, and whether the audio continued or jumped (a seek or a new recording).
 ///
-///     SURABAR_PROBE_PLAYBACK="1:1 25" [SURABAR_PROBE_RECITER=3] Surabar.app/Contents/MacOS/Surabar
+///     SURABAR_PROBE_PLAYBACK="1:1 25" [SURABAR_PROBE_RECITER=3] [SURABAR_PROBE_LOOP="ayah 2"] Surabar.app/Contents/MacOS/Surabar
 @MainActor
 enum DebugPlaybackProbe {
     static func runIfRequested() -> Bool {
@@ -102,6 +105,13 @@ enum DebugPlaybackProbe {
         UserDefaults().removePersistentDomain(forName: suite)
         let state = AppState(defaults: UserDefaults(suiteName: suite)!)
         if let reciter = ProcessInfo.processInfo.environment["SURABAR_PROBE_RECITER"].flatMap(Int.init) { state.reciterID = reciter }
+        // SURABAR_PROBE_LOOP="ayah 2" or "unit 0" (the surah; 0 repeats until stopped).
+        if let loop = ProcessInfo.processInfo.environment["SURABAR_PROBE_LOOP"]?.split(separator: " "), loop.count == 2,
+           let mode = LoopMode(rawValue: String(loop[0])), let count = Int(loop[1]) {
+            state.loopMode = mode
+            state.repeatCount = count
+            state.repeatPause = 1
+        }
         let player = RecitationPlayer(state: state, ayahCounts: library.store.surahs.map(\.ayahCount), reciters: ReciterCatalogLoader.bundled())
         let queue = player.debugQueuePlayer
         queue.isMuted = true
@@ -116,7 +126,8 @@ enum DebugPlaybackProbe {
                 let expected = last.position + (wall - last.wall) * Double(queue.rate == 0 ? 1 : queue.rate)
                 how = last.item == item && abs(position - expected) < 0.3 ? "continued (no seek)" : "jumped"
             }
-            print(String(format: "%6.2fs  %@  at %.2fs in %@ — %@", wall, ayah.description, position,
+            print(String(format: "%6.2fs  %@%@  at %.2fs in %@ — %@", wall, ayah.description,
+                         player.step.map { $0.repetition > 1 ? " #\($0.repetition)" : "" } ?? "", position,
                          (queue.currentItem?.asset as? AVURLAsset)?.url.lastPathComponent ?? "-", how))
         }
         // Sample continuously so each ayah change is compared with where the audio just was.

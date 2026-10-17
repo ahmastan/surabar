@@ -26,7 +26,11 @@ struct ReaderView: View {
                 if let error = model.loadError {
                     missingData(error)
                 } else if state.viewMode == .playerOnly {
-                    if let player { PlayerView(player: player, model: model, palette: palette) }
+                    if let player {
+                        NowPlayingCard(player: player, model: model, palette: palette)
+                        Divider()
+                        PlayerView(player: player, model: model, palette: palette)
+                    }
                     Spacer(minLength: 0)
                 } else {
                     ZStack(alignment: .top) {
@@ -36,11 +40,12 @@ struct ReaderView: View {
                             footer
                         }
                         .background(palette.page)
+                        .overlay(alignment: .bottom) { backToPlaying }
                         overlay
                     }
                     if state.showTranslation {
                         Divider()
-                        TranslationStrip(model: model, playing: player?.isActive ?? false, palette: palette)
+                        TranslationStrip(model: model, playing: (player?.isActive ?? false) && model.followsPlayback, palette: palette)
                     }
                     if let player {
                         Divider()
@@ -53,6 +58,7 @@ struct ReaderView: View {
         .foregroundStyle(palette.ink)
         .tint(palette.accent)
         .animation(.easeOut(duration: 0.12), value: model.overlay)
+        .animation(.easeOut(duration: 0.18), value: showsBackToPlaying)
         // The first time a layout with page fonts is shown, fetch them once.
         .task(id: model.state.script) { model.preparePageFonts() }
     }
@@ -162,6 +168,31 @@ struct ReaderView: View {
     }
 
     // MARK: Overlays and states
+
+    private var showsBackToPlaying: Bool {
+        guard let player, player.isActive, let ayah = player.ayah else { return false }
+        return !model.followsPlayback && !(model.isOnPage(ayah) && model.state.selectedAyah == ayah)
+    }
+
+    /// Shown over the page bottom while recitation plays elsewhere, as Maps offers to re-centre.
+    @ViewBuilder private var backToPlaying: some View {
+        if showsBackToPlaying, let ayah = player?.ayah {
+            Button { model.returnToPlayback(at: ayah) } label: {
+                Label("Back to playing \(ayah)", systemImage: "arrow.uturn.backward")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(palette.onAccent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(palette.accent))
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, ReaderLayout.footerHeight + 10)
+            .help("Show the ayah being recited and follow it again")
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
 
     @ViewBuilder private var overlay: some View {
         switch state.viewMode == .playerOnly ? nil : model.overlay {

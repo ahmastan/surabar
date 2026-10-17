@@ -75,6 +75,21 @@ private func run(_ sequence: PlaybackSequence, from ayah: AyahKey, limit: Int = 
     #expect(run(sequence, from: key(1, 1)) == ["1:1", "1:1#2", "1:2", "1:2#2", "1:1", "1:1#2", "1:2", "1:2#2"])
 }
 
+@Test func aPassStartedPartWayThroughIsPassZero() {
+    var sequence = PlaybackSequence(ayahCounts: counts, boundaryEnd: key(1, 7))
+    sequence.range = key(1, 1) ... key(1, 3)
+    sequence.rangeRepeats = .times(2)
+    var step = sequence.start(at: key(1, 2))
+    var pass = 0
+    var out: [String] = []
+    while out.count < 20 {
+        out.append("\(step.ayah)")
+        guard let next = sequence.step(after: step, rangePass: pass) else { break }
+        (step, pass) = next
+    }
+    #expect(out == ["1:2", "1:3", "1:1", "1:2", "1:3", "1:1", "1:2", "1:3"])
+}
+
 @Test func startingOutsideTheRangeJumpsIntoIt() {
     var sequence = PlaybackSequence(ayahCounts: counts, boundaryEnd: key(114, 6))
     sequence.range = key(2, 1) ... key(2, 2)
