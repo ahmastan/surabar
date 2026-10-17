@@ -108,6 +108,43 @@ struct AccentRGB: Equatable {
     }
 }
 
+/// The menu bar icon: the app icon's mark (default), the mark on a tile, or a matching system symbol.
+enum MenuBarIcon: String, CaseIterable, Identifiable {
+    case surabar, tile, book, closedBook, moon, waveform
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .surabar: "Surabar"
+        case .tile: "Surabar tile"
+        case .book: "Book"
+        case .closedBook: "Closed book"
+        case .moon: "Moon and stars"
+        case .waveform: "Waveform"
+        }
+    }
+
+    /// An image in the asset catalog, drawn from the app icon.
+    var assetName: String? {
+        switch self {
+        case .surabar: "MenuBarIcon"
+        case .tile: "MenuBarTile"
+        default: nil
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .surabar, .tile: "book"
+        case .book: "book"
+        case .closedBook: "text.book.closed"
+        case .moon: "moon.stars"
+        case .waveform: "waveform"
+        }
+    }
+}
+
 /// The Settings tabs, in order.
 enum SettingsTab: String, CaseIterable, Identifiable {
     case appearance, reading, player, general
@@ -134,6 +171,7 @@ final class AppState {
     private enum Keys {
         static let size = "readerSize"
         static let theme = "readerTheme"
+        static let menuBarIcon = "menuBarIcon"
         static let accent = "accentColor"
         static let customAccent = "customAccentColor"
         static let viewMode = "viewMode"
@@ -160,6 +198,10 @@ final class AppState {
 
     var theme: ReaderTheme {
         didSet { defaults.set(theme.rawValue, forKey: Keys.theme) }
+    }
+
+    var menuBarIcon: MenuBarIcon {
+        didSet { defaults.set(menuBarIcon.rawValue, forKey: Keys.menuBarIcon) }
     }
 
     var accent: ReaderAccent {
@@ -249,6 +291,7 @@ final class AppState {
         self.defaults = defaults
         size = defaults.string(forKey: Keys.size).flatMap(ReaderSize.init(rawValue:)) ?? .medium
         theme = defaults.string(forKey: Keys.theme).flatMap(ReaderTheme.init(rawValue:)) ?? .system
+        menuBarIcon = defaults.string(forKey: Keys.menuBarIcon).flatMap(MenuBarIcon.init(rawValue:)) ?? .surabar
         accent = defaults.string(forKey: Keys.accent).flatMap(ReaderAccent.init(rawValue:)) ?? .system
         customAccent = defaults.string(forKey: Keys.customAccent).flatMap(AccentRGB.init(hex:)) ?? .default
         viewMode = defaults.string(forKey: Keys.viewMode).flatMap(ReaderViewMode.init(rawValue:)) ?? .quranAndPlayer

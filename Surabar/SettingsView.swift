@@ -82,6 +82,10 @@ struct SettingsView: View {
                 AccentSwatches(state: state, palette: palette, editCustom: editCustomAccent)
             }
             Divider()
+            SettingsRow("Menu bar icon", value: state.menuBarIcon.title, palette: palette, stacked: true) {
+                MenuBarIconChoices(state: state, palette: palette)
+            }
+            Divider()
             SettingsRow("Size", palette: palette, stacked: true,
                         footnote: "Keys 1, 2, and 3 also choose a size while the reader is open.") {
                 segmented($state.size, ReaderSize.allCases, title: \.title)
@@ -230,6 +234,35 @@ private struct AccentSwatches: View {
         .padding(2.5)
         .overlay(Circle().strokeBorder(selected ? palette.secondary.opacity(0.7) : .clear, lineWidth: 1.5))
         .contentShape(Circle())
+    }
+}
+
+/// The menu bar icon choices, each drawn as it appears in the menu bar.
+private struct MenuBarIconChoices: View {
+    let state: AppState
+    let palette: ReaderPalette
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(MenuBarIcon.allCases) { icon in
+                let selected = state.menuBarIcon == icon
+                Button { state.menuBarIcon = icon } label: {
+                    Group {
+                        if let image = icon.image { Image(nsImage: image).renderingMode(.template) }
+                    }
+                    .foregroundStyle(selected ? palette.accent : palette.ink)
+                    .frame(width: 36, height: 28)
+                    .background(selected ? palette.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? palette.accent : palette.secondary.opacity(0.25),
+                                                                            lineWidth: selected ? 1.5 : 0.5))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(icon.title)
+                .accessibilityLabel(icon.title)
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            }
+        }
     }
 }
 

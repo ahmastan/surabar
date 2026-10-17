@@ -13,9 +13,7 @@ final class StatusItemController: NSObject {
         self.reader = reader
         super.init()
         guard let button = item.button else { return }
-        let image = NSImage(systemSymbolName: "book", accessibilityDescription: "Surabar")
-        image?.isTemplate = true
-        button.image = image
+        showIcon()
         button.toolTip = "Surabar"
         button.target = self
         button.action = #selector(clicked(_:))
@@ -23,6 +21,15 @@ final class StatusItemController: NSObject {
     }
 
     var button: NSStatusBarButton? { item.button }
+
+    /// Shows the icon chosen in Settings › Appearance, and again whenever it changes.
+    private func showIcon() {
+        item.button?.image = withObservationTracking {
+            state.menuBarIcon.image
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.showIcon() }
+        }
+    }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
         let event = NSApp.currentEvent
@@ -74,5 +81,15 @@ private final class MenuAction {
 
     init(_ perform: @escaping @MainActor () -> Void) {
         self.perform = perform
+    }
+}
+
+extension MenuBarIcon {
+    /// A template image, so macOS tints it for light and dark menu bars.
+    var image: NSImage? {
+        let image = assetName.flatMap { NSImage(named: $0) } ?? NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        image?.isTemplate = true
+        image?.accessibilityDescription = "Surabar"
+        return image
     }
 }

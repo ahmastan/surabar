@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MushafRendering
 import Testing
@@ -23,6 +24,7 @@ struct AppStateTests {
         #expect(state.selectedAyah == AyahKey(surah: 1, ayah: 1))
         #expect(state.pages.isEmpty)
         #expect(state.accent == .system)
+        #expect(state.menuBarIcon == .surabar)
         #expect(state.viewMode == .quranAndPlayer)
         #expect(state.skipUnit == .surah)
         #expect(state.repeatCount == 0)
@@ -46,6 +48,7 @@ struct AppStateTests {
         first.skipUnit = .page
         first.repeatCount = 5
         first.loopMode = .ayah
+        first.menuBarIcon = .moon
         first.isShowingSettings = true
 
         let relaunched = AppState(defaults: defaults)
@@ -63,6 +66,7 @@ struct AppStateTests {
         #expect(relaunched.skipUnit == .page)
         #expect(relaunched.repeatCount == 5)
         #expect(relaunched.loopMode == .ayah)
+        #expect(relaunched.menuBarIcon == .moon)
         // The reader always reopens on the mushaf.
         #expect(!relaunched.isShowingSettings)
     }
@@ -82,6 +86,17 @@ struct AppStateTests {
         #expect(state.customAccent == .default)
         #expect(state.viewMode == .quranAndPlayer)
         #expect(state.repeatCount == 0)
+    }
+
+    @Test func everyMenuBarIconLoadsAsATemplate() {
+        for icon in MenuBarIcon.allCases {
+            let image = icon.image
+            #expect(image != nil, "\(icon)")
+            #expect(image?.isTemplate == true)
+            #expect((image?.size.height ?? 0) <= 18, "\(icon) fits the menu bar")
+        }
+        #expect(MenuBarIcon.surabar.image?.size == NSSize(width: 19, height: 16), "drawn from the asset, not the fallback")
+        #expect(MenuBarIcon.tile.image?.size == NSSize(width: 16, height: 16))
     }
 
     @Test func customAccentHexRoundTrips() {
