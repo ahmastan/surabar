@@ -17,6 +17,8 @@ struct SurahPicker: View {
     #if DEBUG
     /// For snapshots: open on the juz list with these juz expanded.
     var debugExpandedJuz: Set<Int>?
+    #else
+    var debugExpandedJuz: Set<Int>? = nil
     #endif
 
     enum Mode: String, CaseIterable {

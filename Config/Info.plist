@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Keys Xcode can't generate; merged with the generated Info.plist (see project.yml). -->
+<plist version="1.0">
+<dict>
+	<!-- Sparkle: the appcast is uploaded with each GitHub release (tools/release.sh). -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/ahmastan/surabar/releases/latest/download/appcast.xml</string>
+	<!-- Updates are signed with the private key in the maintainer's login Keychain (account "surabar"). -->
+	<key>SUPublicEDKey</key>
+	<string>Zyti8PklYDrJxaHzYm2WXpIiOgZa0xzN6Fgl1bR8C1c=</string>
+	<!-- Check daily without asking first; Settings › General turns this off. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+</dict>
+</plist>

@@ -56,6 +56,7 @@ final class StatusItemController: NSObject {
         }
         menu.addItem(.separator())
         menu.addItem(action("Settings…", key: ",", modifiers: .command) { [weak self] in self?.reader.showSettings(from: button) })
+        menu.addItem(action("Check for Updates…") { Updater.shared.checkForUpdates() })
         menu.addItem(.separator())
         menu.addItem(action("Quit Surabar", key: "q", modifiers: .command) { NSApp.terminate(nil) })
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 6), in: button)

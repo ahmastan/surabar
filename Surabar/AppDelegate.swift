@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         if DebugSnapshot.runIfRequested() || DebugPlaybackProbe.runIfRequested() || DebugBenchmark.runIfRequested() { return }
         #endif
+        Updater.shared.start()
         model = ReaderModel(state: state, library: QuranLibrary.loadBundled())
         model.annotations = try? AnnotationStore()
         let translations = TranslationLibrary(state: state)

@@ -245,7 +245,7 @@ final class ReaderController: NSObject {
             // Page fonts change the page's height once they are downloaded.
             _ = (state.size, state.theme, state.keepOnTop, state.showTranslation, state.script, model.usesPageFonts,
                  state.viewMode, state.isShowingSettings, state.settingsTab, state.settingsContentHeights, state.showsDownloads,
-                 state.glassStyle)
+                 state.showsAcknowledgements, state.glassStyle)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyWindowSettings()

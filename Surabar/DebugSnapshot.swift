@@ -67,6 +67,10 @@ enum DebugSnapshot {
                 state.isShowingSettings = true
                 state.settingsTab = .reading
                 state.showsTranslations = true
+            case "acknowledgements":
+                state.isShowingSettings = true
+                state.settingsTab = .general
+                state.showsAcknowledgements = true
             case "downloads":
                 state.isShowingSettings = true
                 state.settingsTab = .player

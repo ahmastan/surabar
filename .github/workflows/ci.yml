@@ -55,3 +55,6 @@ jobs:
           xcodegen generate
       - name: Build and test
         run: xcodebuild -project Surabar.xcodeproj -scheme Surabar -destination 'platform=macOS' test
+      - name: Build for release (both architectures)
+        # Release builds leave out debug-only code, which the test build above includes.
+        run: xcodebuild -project Surabar.xcodeproj -scheme Surabar -configuration Release -destination 'generic/platform=macOS' build

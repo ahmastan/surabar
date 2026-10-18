@@ -81,10 +81,13 @@ final class ManzilReminders: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let isManzil = Self.identifiers.contains(response.notification.request.identifier)
+        let identifier = response.notification.request.identifier
         completionHandler()
-        guard isManzil else { return }
-        Task { @MainActor in self.onOpen?() }
+        if identifier == Updater.notificationIdentifier {
+            Task { @MainActor in Updater.shared.checkForUpdates() }
+        } else if Self.identifiers.contains(identifier) {
+            Task { @MainActor in self.onOpen?() }
+        }
     }
 
     /// Shows the reminder even while Surabar is in use.

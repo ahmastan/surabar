@@ -369,6 +369,8 @@ final class AppState {
     var showsDownloads = false
     /// The list of translations, shown within Settings › Reading.
     var showsTranslations = false
+    /// Credits and licences, shown within Settings › General.
+    var showsAcknowledgements = false
 
     /// The outcome of the last backup import or export, shown in Settings › General.
     var backupMessage: String?

@@ -28,6 +28,10 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 3.1.0
+  # Approved dependency: signed in-app updates from the GitHub release appcast.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.0
 
 targets:
   Surabar:
@@ -47,6 +51,7 @@ targets:
       - package: SurabarKit
         product: Annotations
       - package: KeyboardShortcuts
+      - package: Sparkle
     settings:
       base:
         PRODUCT_NAME: Surabar
@@ -54,6 +59,8 @@ targets:
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: YES
+        # Sparkle's keys, merged into the generated Info.plist.
+        INFOPLIST_FILE: Config/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Surabar
         # The app icon is the Icon Composer file Surabar/AppIcon.icon (Liquid Glass on macOS 26;
         # Xcode also generates the icon for earlier macOS versions).

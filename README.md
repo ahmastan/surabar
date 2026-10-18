@@ -1,12 +1,35 @@
 # Surabar
 
-An open-source macOS menu bar Quran reader, being built around authentic mushaf pages and recitation.
+An open-source Quran reader for the macOS menu bar, with authentic mushaf pages and recitation.
 
-## Development status
+Surabar shows the mushaf as printed (the 15-line Madani mushaf in Uthmani script and the 15-line IndoPak mushaf) in a window that opens from the menu bar. It recites from continuous surah recordings that follow along ayah by ayah, with loops (ayah, surah, page, or a range of ayahs), offline downloads by surah or juz, media keys and Now Playing, the Manzil with daily reminders, bookmarks, highlights, and notes with JSON backup, translations from QuranEnc.com (76 in 56 languages), a global shortcut, and launch at login. It needs macOS 14 or later and runs natively on Apple silicon and Intel Macs.
 
-Surabar is in early development. The menu bar app has an offline mushaf reader (Uthmani and IndoPak pages), recitation from continuous surah recordings that follows along ayah by ayah, loops (ayah, surah, page, or a range of ayahs), recitations saved for offline listening and downloadable by surah or juz, media-key and Now Playing support, bookmarks, highlights, and notes with JSON backup, translations from QuranEnc.com (76 in 56 languages), a global shortcut, and launch at login. The repository also contains source tooling, a Quran database builder and verifier, a Core Text page-rendering harness, and project documentation. There is no published installer yet.
+## Installing
 
-Still planned: a visual refresh with smoother animations. The target is macOS 14 or later on Apple Silicon and Intel. Homebrew and direct DMG installation are planned for the first release.
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask ahmastan/tap/surabar
+```
+
+Or download `Surabar-<version>.dmg` from the [latest release](https://github.com/ahmastan/surabar/releases/latest), open it, and drag Surabar to Applications. Each release lists the SHA-256 of its files in `SHA256SUMS.txt`.
+
+Surabar isn't signed with an Apple Developer ID yet, so macOS blocks its first launch. Open it once, then go to System Settings › Privacy & Security and click **Open Anyway**. Surabar lives in the menu bar: look for its icon at the top of the screen. To try it straight away, press Control-Option-Q.
+
+### Updating
+
+Surabar checks for updates once a day and offers to install them (Settings › General › Updates, where you can also check now or turn the daily check off). Updates are signed, and Surabar only installs an update whose signature matches the key built into it. With Homebrew, `brew upgrade surabar` also works.
+
+### Uninstalling
+
+Quit Surabar (right-click its menu bar icon or press Command-Q while it's open), then move it from Applications to the Trash, or run `brew uninstall surabar`. Your bookmarks, notes, settings, and downloaded recitations stay on your Mac. To remove them too, run `brew uninstall --zap surabar`, or delete these yourself:
+
+- `~/Library/Application Support/Surabar`
+- `~/Library/Preferences/io.github.ahmastan.surabar.plist`
+- `~/Library/Caches/io.github.ahmastan.surabar`
+- `~/Library/HTTPStorages/io.github.ahmastan.surabar`
+
+Export a backup first (Settings › General › Backup) if you may want your bookmarks and notes again.
 
 ## Working with source data
 
@@ -60,6 +83,10 @@ swift run --package-path SurabarKit surabar-render check --db build/quran.sqlite
 
 `render` writes PNG snapshots at the S, M, and L reader widths (340, 440, and 560 points). `check` lays out every page and reports overflowing lines, missing glyphs, ink clipped at the page edge, and overlapping words. `sample` uses synthetic, non-Quranic Arabic text.
 
+### Releasing
+
+Releases are built on the maintainer's Mac, because the Quran data isn't in the repository. `tools/release.sh` builds a universal, ad-hoc signed app with the data from `Surabar/Resources/Bundled/`, then writes the DMG, the update ZIP signed with the Sparkle key in the login Keychain, `appcast.xml`, checksums, and release notes (the version's section of [CHANGELOG.md](CHANGELOG.md)) into `build/release/<version>/`. It publishes nothing; it ends by printing the `gh release create` command. Raise `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` first: Sparkle compares build numbers. Installed copies read the appcast from the latest release, so it is uploaded with every release. The Homebrew cask lives in [ahmastan/homebrew-tap](https://github.com/ahmastan/homebrew-tap).
+
 ## Contributing
 
 Run the regression tests without downloading any Quran assets:
@@ -70,7 +97,7 @@ swift test --package-path SurabarKit
 xcodegen generate && xcodebuild -project Surabar.xcodeproj -scheme Surabar -destination 'platform=macOS' test
 ```
 
-GitHub Actions runs these on pushes to `main` and pull requests, using synthetic inputs and system fonts. App build checks and release automation will be added as those parts of the project are implemented.
+GitHub Actions runs these on pushes to `main` and pull requests, using synthetic inputs and system fonts.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please discuss substantial changes in an issue before implementing them. Quranic text must remain identical to its approved source; font and layout defects must be fixed without editing the text.
 

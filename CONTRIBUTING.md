@@ -17,7 +17,7 @@ Surabar is early in development. Start with a focused issue describing the probl
 - Keep unreviewed downloads in `tools/data/raw/`; do not add them to Git.
 - Persist ayah identity as `surah:ayah`, independently of layout page numbers.
 - For a text or layout issue, include the script, layout, page, ayah reference, and a reference preview where possible.
-- Do not add a dependency without maintainer agreement. Planned dependencies are GRDB.swift, KeyboardShortcuts, and Sparkle 2.
+- Do not add a dependency without maintainer agreement. The approved dependencies are GRDB.swift, KeyboardShortcuts, and Sparkle 2.
 
 ## Pull requests
 

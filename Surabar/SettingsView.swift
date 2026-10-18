@@ -24,6 +24,7 @@ struct SettingsView: View {
                     state.isShowingSettings = false
                     state.showsDownloads = false
                     state.showsTranslations = false
+                    state.showsAcknowledgements = false
                     state.backupMessage = nil
                 }
                     .modifier(ProminentButton(glass: palette.glass))
@@ -51,7 +52,12 @@ struct SettingsView: View {
                         } else {
                             playerTab
                         }
-                    case .general: general
+                    case .general:
+                        if state.showsAcknowledgements {
+                            AcknowledgementsView(state: state, palette: palette)
+                        } else {
+                            general
+                        }
                     }
                 }
                 .padding(14)
@@ -88,6 +94,7 @@ struct SettingsView: View {
                     state.settingsTab = tab
                     state.showsDownloads = false
                     state.showsTranslations = false
+                    state.showsAcknowledgements = false
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.symbol).font(.system(size: 17)).frame(height: 20)
@@ -344,6 +351,30 @@ struct SettingsView: View {
                 Toggle("Keep detached window on top", isOn: $state.keepOnTop).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
         }
+        SettingsGroup(title: "Updates", palette: palette) {
+            SettingsRow("Check for updates automatically", palette: palette) {
+                Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecks },
+                                                                        set: { updater.setAutomaticallyChecks($0) }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            Divider()
+            SettingsRow("Version", value: updateSummary, palette: palette) {
+                Button(updater.availableVersion == nil ? "Check Now" : "Install…", action: updater.checkForUpdates)
+            }
+        }
+        SettingsGroup(palette: palette) {
+            SettingsRow("Acknowledgements", palette: palette,
+                        footnote: "The Quran text, fonts, translations, and recitations Surabar uses, and their sources.") {
+                Button("Show…") { state.showsAcknowledgements = true }
+            }
+        }
+    }
+
+    private var updater: Updater { .shared }
+
+    private var updateSummary: String {
+        if let available = updater.availableVersion { return "\(updater.version) · \(available) available" }
+        return updater.version
     }
 
     private var loginFootnote: String? {
