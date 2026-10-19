@@ -12,10 +12,14 @@ struct PlayerView: View {
     var body: some View {
         VStack(spacing: 4) {
             progress.frame(height: 14)
-            // The transport centred, the volume at the right end, as in Music's player.
-            ZStack(alignment: .trailing) {
+            // The transport centred, the sleep timer at the left end and the volume at the right, as in Music's player.
+            ZStack {
                 transport.frame(maxWidth: .infinity)
-                VolumeControl(player: player, state: model.state, palette: palette).frame(height: 30)
+                HStack {
+                    SleepTimerControl(player: player, palette: palette).frame(height: 30)
+                    Spacer(minLength: 0)
+                    VolumeControl(player: player, state: model.state, palette: palette).frame(height: 30)
+                }
             }
             .frame(height: 40)
             HStack(spacing: 6) {
@@ -255,6 +259,75 @@ struct LoopControl: View {
 }
 
 /// The recitation's loudness: a speaker showing the level, which opens a slider.
+/// The sleep timer: stop after 15–60 minutes (fading out) or at the end of the page, surah, or juz being
+/// recited. While it's set, the moon is lit and shows the time left; pausing by hand cancels it.
+struct SleepTimerControl: View {
+    let player: RecitationPlayer
+    let palette: ReaderPalette
+    @State private var isOpen = false
+
+    private static let minutes = [15, 30, 45, 60]
+
+    var body: some View {
+        Button { isOpen.toggle() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: player.sleepTimer == nil ? "moon.zzz" : "moon.zzz.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(player.sleepTimer == nil ? palette.ink : palette.accent)
+                    .contentTransition(.symbolEffect(.replace))
+                if player.sleepTimer != nil { remaining { Text($0).font(.caption.weight(.semibold)).monospacedDigit() } }
+            }
+            .padding(.horizontal, player.sleepTimer == nil ? 0 : 6)
+        }
+        .buttonStyle(ClusterButtonStyle(width: 32, height: 30))
+        .help(player.sleepTimer == nil ? "Sleep timer" : "Sleep timer: \(description)")
+        .accessibilityLabel("Sleep timer")
+        .accessibilityValue(player.sleepTimer == nil ? "Off" : description)
+        .popover(isPresented: $isOpen, arrowEdge: .top) {
+            OptionList(sections: sections, accent: palette.accent, onAccent: palette.onAccent) { isOpen = false }
+        }
+    }
+
+    /// The time left (refreshed every half minute while a timed sleep timer runs) or the unit it ends with.
+    @ViewBuilder private func remaining(@ViewBuilder _ content: @escaping (String) -> some View) -> some View {
+        if let deadline = player.sleepDeadline {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                content("\(max(1, Int((deadline.timeIntervalSince(context.date) / 60).rounded(.up)))) min")
+            }
+        } else if case .endOf(let unit) = player.sleepTimer {
+            content(unit.title)
+        }
+    }
+
+    private var description: String {
+        switch player.sleepTimer {
+        case .after?:
+            let minutes = max(1, Int(((player.sleepDeadline ?? .now).timeIntervalSinceNow / 60).rounded(.up)))
+            return "stops in \(minutes) minute\(minutes == 1 ? "" : "s")"
+        case .endOf(let unit)?: return "stops at the end of the \(unit.title.lowercased())"
+        case nil: return "off"
+        }
+    }
+
+    private var sections: [OptionSection] {
+        let current = player.sleepTimer
+        return [
+            OptionSection(title: "Stop playing", items: [
+                OptionItem(id: "off", title: "Off", isSelected: current == nil) { player.setSleepTimer(nil) },
+            ] + Self.minutes.map { minutes in
+                OptionItem(id: "\(minutes)", title: "In \(minutes) minutes", isSelected: current == .after(Double(minutes * 60))) {
+                    player.setSleepTimer(.after(Double(minutes * 60)))
+                }
+            }),
+            OptionSection(title: "At the end of the", items: [PlaybackStop.page, .surah, .juz].map { unit in
+                OptionItem(id: unit.rawValue, title: unit.title, isSelected: current == .endOf(unit)) {
+                    player.setSleepTimer(.endOf(unit))
+                }
+            }),
+        ]
+    }
+}
+
 struct VolumeControl: View {
     let player: RecitationPlayer
     let state: AppState

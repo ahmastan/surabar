@@ -35,6 +35,22 @@ final class ReaderController: NSObject {
     var isPopoverShown: Bool { popover.isShown }
     var isPanelVisible: Bool { panel?.isVisible ?? false }
 
+    /// Whether a sleep timer is set (the menu bar icon takes the accent color meanwhile).
+    var sleepTimerIsSet: Bool { player?.sleepTimer != nil }
+
+    /// The status item menu's recitation item: pause what's playing, or continue a paused recitation
+    /// (also the one remembered from the last session), showing its page.
+    var recitationMenuAction: (title: String, perform: @MainActor () -> Void)? {
+        guard let player else { return nil }
+        if player.isActive { return ("Pause Recitation", { player.pause() }) }
+        guard let ayah = player.resumableAyah else { return nil }
+        let name = model.store?.surah(ayah.surah)?.nameSimple ?? ""
+        return ("Continue \(name) \(ayah.description)", { [weak self] in
+            self?.model.returnToPlayback(at: ayah)
+            player.resume()
+        })
+    }
+
     /// Whether a key-down event belongs to the reader (popover or detached window).
     func owns(_ window: NSWindow?) -> Bool {
         guard let window else { return false }

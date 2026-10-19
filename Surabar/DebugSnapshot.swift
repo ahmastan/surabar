@@ -25,6 +25,7 @@ enum DebugSnapshot {
         var overlay: ReaderModel.Overlay?
         var expandedJuz: Set<Int>?
         var available = 2000.0
+        var sleep: RecitationPlayer.SleepTimer?
         for pair in (environment["SURABAR_SNAPSHOT_STATE"] ?? "").split(separator: " ") {
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
@@ -58,6 +59,10 @@ enum DebugSnapshot {
             case "glass": GlassStyle(rawValue: parts[1]).map { state.glassStyle = $0 }
             case "screen": Double(parts[1]).map { available = $0 }
             case "manzilday": state.manzilRoutine.setRead(true, on: Date())
+            // continue=18:45: a recitation remembered from the last session, paused there (the Continue pill).
+            case "continue": AyahKey(string: parts[1]).map { state.lastPlayedAyah = $0 }
+            // sleep=30 (minutes) or sleep=page|surah|juz: a sleep timer is set.
+            case "sleep": sleep = Int(parts[1]).map { .after(Double($0 * 60)) } ?? PlaybackStop(rawValue: parts[1]).map { .endOf($0) }
             case "expand": expandedJuz = Set(parts[1].split(separator: ",").compactMap { Int($0) })
             case "loop": LoopMode(rawValue: parts[1]).map { state.loopMode = $0 }
             case "count": Int(parts[1]).map { state.repeatCount = $0 }
@@ -106,6 +111,7 @@ enum DebugSnapshot {
             DownloadCenter(audio: AudioCache(), timings: TimingsStore(ayahCounts: model.store!.surahs.map(\.ayahCount)), state: state)
         }
         player?.readsManzil = { model.readingManzil }
+        if let sleep { player?.setSleepTimer(sleep) }
         var reader = ReaderView(state: state, model: model, player: player, downloads: downloads, actions: actions)
         reader.debugExpandedJuz = expandedJuz
         let view = NSHostingView(rootView: reader)
@@ -176,6 +182,23 @@ enum DebugPlaybackProbe {
         let queue = player.debugQueuePlayer
         queue.isMuted = true
         let origin = CACurrentMediaTime()
+        // SURABAR_PROBE_SLEEP=<seconds>|page|surah|juz: a sleep timer, set when playback starts. Logs the fade
+        // (the player's volume; muting doesn't change it) and when playback pauses.
+        if let sleep = ProcessInfo.processInfo.environment["SURABAR_PROBE_SLEEP"] {
+            let timer: RecitationPlayer.SleepTimer? = Double(sleep).map { .after($0) } ?? PlaybackStop(rawValue: sleep).map { .endOf($0) }
+            if let timer { DispatchQueue.main.async { player.setSleepTimer(timer) } }
+            var lastVolume = queue.volume, lastStatus = player.status
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    let wall = CACurrentMediaTime() - origin
+                    if abs(queue.volume - lastVolume) > 0.05 { print(String(format: "%6.2fs  [sleep] volume %.2f", wall, queue.volume)); lastVolume = queue.volume }
+                    if player.status != lastStatus {
+                        print(String(format: "%6.2fs  [sleep] status %@, timer %@", wall, "\(player.status)", player.sleepTimer == nil ? "cleared" : "set"))
+                        lastStatus = player.status
+                    }
+                }
+            }
+        }
         var last: (wall: Double, position: Double, item: ObjectIdentifier?)?
         player.onAyahChange = { ayah in
             let wall = CACurrentMediaTime() - origin

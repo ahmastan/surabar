@@ -14,7 +14,6 @@ final class StatusItemController: NSObject {
         super.init()
         guard let button = item.button else { return }
         showIcon()
-        button.toolTip = "Surabar"
         button.target = self
         button.action = #selector(clicked(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -22,13 +21,19 @@ final class StatusItemController: NSObject {
 
     var button: NSStatusBarButton? { item.button }
 
-    /// Shows the icon chosen in Settings › Appearance, and again whenever it changes.
+    /// Shows the icon chosen in Settings › Appearance, and again whenever it changes. While a sleep timer is
+    /// set, the icon takes the accent color (Sepia's brown belongs to the reader, so the menu bar uses the
+    /// ordinary accent).
     private func showIcon() {
-        item.button?.image = withObservationTracking {
-            state.menuBarIcon.image
+        guard let button = item.button else { return }
+        let (image, sleeping, tint) = withObservationTracking {
+            (state.menuBarIcon.image, reader.sleepTimerIsSet, ReaderPalette.color(for: state.accent, custom: state.customAccent))
         } onChange: { [weak self] in
             Task { @MainActor in self?.showIcon() }
         }
+        // The menu bar draws template images in its own black or white, so the coloured icon is its own image.
+        button.image = sleeping ? image.map { $0.tinted(tint) } : image
+        button.toolTip = sleeping ? "Surabar · sleep timer on" : "Surabar"
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -42,6 +47,10 @@ final class StatusItemController: NSObject {
 
     private func showMenu(from button: NSStatusBarButton) {
         let menu = NSMenu()
+        if let recitation = reader.recitationMenuAction {
+            menu.addItem(action(recitation.title, perform: recitation.perform))
+            menu.addItem(.separator())
+        }
         menu.addItem(action("Open Surabar") { [weak self] in self?.reader.open(from: button) })
         if state.isDetached {
             menu.addItem(action("Attach to Menu Bar") { [weak self] in self?.reader.attach() })
@@ -82,6 +91,21 @@ private final class MenuAction {
 
     init(_ perform: @escaping @MainActor () -> Void) {
         self.perform = perform
+    }
+}
+
+extension NSImage {
+    /// A copy filled with `color` (drawn when shown, so a system color follows the appearance), not a template.
+    func tinted(_ color: NSColor) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { [self] rect in
+            draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = accessibilityDescription
+        return image
     }
 }
 

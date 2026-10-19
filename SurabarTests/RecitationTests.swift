@@ -255,3 +255,59 @@ struct ManzilPlaybackTests {
         #expect(player.ayah == AyahKey(surah: 2, ayah: 5))
     }
 }
+
+@MainActor
+struct SleepTimerTests {
+    private func makePlayer(lastPlayed: AyahKey? = nil) -> (AppState, RecitationPlayer) {
+        let name = "SurabarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let state = AppState(defaults: defaults)
+        state.lastPlayedAyah = lastPlayed
+        let counts = [7, 286, 200]
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("surabar-audio-\(UUID().uuidString)")
+        return (state, RecitationPlayer(state: state, ayahCounts: counts, reciters: ReciterCatalogLoader.bundled(),
+                                        timings: TimingsStore(ayahCounts: counts), audio: AudioCache(root: root)))
+    }
+
+    @Test func aTimedSleepTimerHasADeadlineAndPausingCancelsIt() {
+        let (_, player) = makePlayer()
+        player.setSleepTimer(.after(15 * 60))
+        #expect(player.sleepTimer == .after(15 * 60))
+        let left = player.sleepDeadline.map { $0.timeIntervalSinceNow } ?? 0
+        #expect(left > 15 * 60 - 5 && left <= 15 * 60)
+        player.pause()
+        #expect(player.sleepTimer == nil && player.sleepDeadline == nil, "pausing by hand cancels the sleep timer")
+    }
+
+    @Test func choosingOffOrAnotherTimerReplacesIt() {
+        let (_, player) = makePlayer()
+        player.setSleepTimer(.after(30 * 60))
+        player.setSleepTimer(.endOf(.surah))
+        #expect(player.sleepTimer == .endOf(.surah) && player.sleepDeadline == nil)
+        player.setSleepTimer(nil)
+        #expect(player.sleepTimer == nil)
+    }
+
+    @Test func aTimerThatRunsOutWhileNothingPlaysJustClears() async throws {
+        let (_, player) = makePlayer()
+        player.setSleepTimer(.after(0))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(player.sleepTimer == nil && player.status == .idle)
+    }
+
+    @Test func theEndOfAUnitIsItsLastAyah() {
+        let (_, player) = makePlayer()
+        #expect(player.lastAyah(of: AyahKey(surah: 2, ayah: 255), in: .surah) == AyahKey(surah: 2, ayah: 286))
+        #expect(player.lastAyah(of: AyahKey(surah: 2, ayah: 255), in: .quran) == AyahKey(surah: 3, ayah: 200))
+        player.unitEnd = { _, unit in unit == .page ? AyahKey(surah: 2, ayah: 257) : AyahKey(surah: 2, ayah: 286) }
+        #expect(player.lastAyah(of: AyahKey(surah: 2, ayah: 255), in: .page) == AyahKey(surah: 2, ayah: 257))
+    }
+
+    @Test func theLastSessionsPositionCanBeContinued() {
+        let (_, fresh) = makePlayer()
+        #expect(fresh.resumableAyah == nil)
+        let (_, relaunched) = makePlayer(lastPlayed: AyahKey(surah: 2, ayah: 255))
+        #expect(relaunched.resumableAyah == AyahKey(surah: 2, ayah: 255), "relaunch keeps the last ayah, paused")
+    }
+}

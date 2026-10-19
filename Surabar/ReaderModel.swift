@@ -35,6 +35,8 @@ final class ReaderModel {
     /// Whether the page and selection follow the recited ayah. Turning pages, jumping, or selecting
     /// another ayah stops following until playback is moved or "Back to playing" is chosen.
     var followsPlayback = true
+    /// The paused ayah whose "Continue" pill was dismissed (not saved).
+    var dismissedResume: AyahKey?
     /// Starts recitation at an ayah (the page's "Play from Here"); set by the app.
     @ObservationIgnored var playAyah: ((AyahKey) -> Void)?
     /// Loops a range of ayahs ("Loop to Here"); set by the app.

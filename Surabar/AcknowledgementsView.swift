@@ -92,7 +92,10 @@ struct Acknowledgement {
                             url: URL(string: "https://qul.tarteel.ai/resources/font/245"), license: "License-KFGQPC-Hafs"),
             Acknowledgement(name: "AlQuran IndoPak by QuranWBW, version 2.100",
                             credit: "By Ayman Siddiqui for QuranWBW.com, based on the Al Qalam Quran Majeed fonts, with ayah "
-                                + "numbers from the KFGQPC Nastaleeq font. Draws the IndoPak pages.",
+                                + "numbers from the KFGQPC Nastaleeq font. © Al Qalam © Ghandhara © KFGQPC © Ayman Siddiqui. "
+                                + "Credits: Abdul Majeed Khan, Arif Karim, Shakir-ul-Qadree, Jawad. Used unmodified, with written "
+                                + "permission from QuranWBW.com, only to display the IndoPak Quran text (QUL's IndoPak Nastaleeq "
+                                + "script), which is also shown unmodified.",
                             url: URL(string: "https://quranwbw.com"), license: "Notice-IndoPak"),
         ]),
         ("Translations and recitations", [

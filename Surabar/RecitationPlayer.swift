@@ -48,6 +48,19 @@ final class RecitationPlayer {
     /// The last ayah of the page or juz an ayah is in, for "Stop playback at".
     @ObservationIgnored var unitEnd: ((AyahKey, PlaybackStop) -> AyahKey?)?
 
+    /// The sleep timer: stop after a while (fading out), or when the page, surah, or juz being recited ends.
+    enum SleepTimer: Equatable {
+        case after(TimeInterval)
+        case endOf(PlaybackStop)
+    }
+
+    /// Not saved: a relaunch never resumes a sleep timer.
+    private(set) var sleepTimer: SleepTimer?
+    /// When a timed sleep timer stops playback.
+    private(set) var sleepDeadline: Date?
+    /// How long the recitation fades out before a timed sleep timer pauses it.
+    static let sleepFade: TimeInterval = 8
+
     /// One ayah or basmalah located in a surah recording.
     private struct Segment {
         let step: PlaybackStep
@@ -76,6 +89,9 @@ final class RecitationPlayer {
     /// The surah or page the Loop repeats, fixed where playback starts or the loop is turned on,
     /// so the loop stays on it even when an ayah crosses a page.
     @ObservationIgnored private var loopRange: ClosedRange<AyahKey>?
+    @ObservationIgnored private var sleepTask: Task<Void, Never>?
+    /// The volume is being lowered for the sleep timer (the setting itself is untouched).
+    @ObservationIgnored private var fadingForSleep = false
 
     init(state: AppState, ayahCounts: [Int], reciters: [Reciter], timings: TimingsStore, audio: AudioCache) {
         self.state = state
@@ -101,6 +117,10 @@ final class RecitationPlayer {
     var reciter: Reciter { reciters.first { $0.id == state.reciterID } ?? reciters[0] }
 
     var isActive: Bool { status == .playing || status == .loading }
+
+    /// A paused recitation that can be continued: the position remembered from the last session, or a
+    /// recitation paused now.
+    var resumableAyah: AyahKey? { status == .paused ? step?.ayah : nil }
 
     /// The ayah being recited, or for a basmalah the ayah it introduces.
     var ayah: AyahKey? { step?.ayah }
@@ -142,7 +162,15 @@ final class RecitationPlayer {
     /// The Manzil is playing or being read: the transport and the Loop work on the Manzil.
     var inManzil: Bool { state.loopMode == .manzil || readsManzil() }
 
+    /// Continues the paused recitation where it stopped.
+    func resume() {
+        guard let ayah = resumableAyah else { return }
+        togglePlayPause(startingAt: ayah)
+    }
+
+    /// Pausing by hand (or by media keys, headphones, or sleep) also cancels the sleep timer.
     func pause() {
+        cancelSleepTimer()
         pendingTask?.cancel()
         player.pause()
         if step != nil { status = .paused }
@@ -263,18 +291,72 @@ final class RecitationPlayer {
         start(step, rangePass: segment?.rangePass ?? 1)
     }
 
+    // MARK: Sleep timer
+
+    func setSleepTimer(_ timer: SleepTimer?) {
+        cancelSleepTimer()
+        sleepTimer = timer
+        guard case .after(let seconds) = timer else { return }
+        sleepDeadline = Date().addingTimeInterval(seconds)
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, seconds - Self.sleepFade)))
+            guard !Task.isCancelled else { return }
+            await self?.fadeOutForSleep()
+        }
+    }
+
+    func cancelSleepTimer() {
+        sleepTask?.cancel()
+        sleepTask = nil
+        if fadingForSleep {
+            fadingForSleep = false
+            player.volume = Float(state.volume)
+        }
+        if sleepTimer != nil { sleepTimer = nil }
+        if sleepDeadline != nil { sleepDeadline = nil }
+    }
+
+    /// Lowers the volume over `sleepFade` seconds, then pauses.
+    private func fadeOutForSleep() async {
+        guard isActive else { return cancelSleepTimer() }
+        fadingForSleep = true
+        let steps = 40
+        for index in 1 ... steps {
+            try? await Task.sleep(for: .seconds(Self.sleepFade / Double(steps)))
+            guard !Task.isCancelled, fadingForSleep else { return }
+            player.volume = Float(state.volume) * Float(steps - index) / Float(steps)
+        }
+        stopForSleep()
+    }
+
+    /// The sleep timer ran out: pause where the recitation is, with the volume back as it was for next time.
+    private func stopForSleep() {
+        pendingTask?.cancel()
+        player.pause()
+        if step != nil { status = .paused }
+        fadingForSleep = false
+        player.volume = Float(state.volume)
+        sleepTask = nil
+        sleepTimer = nil
+        sleepDeadline = nil
+    }
+
+    /// The last ayah of the page, surah, juz, or Quran that `ayah` is in.
+    func lastAyah(of ayah: AyahKey, in unit: PlaybackStop) -> AyahKey {
+        let surahEnd = AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1])
+        return switch unit {
+        case .surah: surahEnd
+        case .quran: AyahKey(surah: ayahCounts.count, ayah: ayahCounts[ayahCounts.count - 1])
+        case .page, .juz: unitEnd?(ayah, unit) ?? surahEnd
+        }
+    }
+
     // MARK: Sequencing
 
     /// The playback order around `ayah` with the current Loop settings. Without a loop, playback stops
     /// at the end of the page, surah, juz, or Quran the ayah is in (Settings › Player).
     func sequence(at ayah: AyahKey) -> PlaybackSequence {
-        let surahEnd = AyahKey(surah: ayah.surah, ayah: ayahCounts[ayah.surah - 1])
-        let end: AyahKey = switch state.playbackStop {
-        case .surah: surahEnd
-        case .quran: AyahKey(surah: ayahCounts.count, ayah: ayahCounts[ayahCounts.count - 1])
-        case .page, .juz: unitEnd?(ayah, state.playbackStop) ?? surahEnd
-        }
-        var sequence = PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: end)
+        var sequence = PlaybackSequence(ayahCounts: ayahCounts, boundaryEnd: lastAyah(of: ayah, in: state.playbackStop))
         let count: RepeatCount = state.repeatCount == 0 ? .forever : .times(state.repeatCount)
         switch state.loopMode {
         case .off:
@@ -386,7 +468,13 @@ final class RecitationPlayer {
     /// The current ayah reached its end timestamp, or the recording ended.
     private func segmentEnded() {
         guard let current = segment, isActive else { return }
+        // "Stop at the end of the page, surah, or juz": the sleep timer's unit ends with this ayah.
+        if case .endOf(let unit) = sleepTimer, current.step.kind == .ayah,
+           current.step.ayah == lastAyah(of: current.step.ayah, in: unit) {
+            return stopForSleep()
+        }
         guard let next = sequence(at: current.step.ayah).step(after: current.step, rangePass: current.rangePass) else {
+            cancelSleepTimer()
             player.pause()
             status = .paused
             if state.loopMode == .manzil {

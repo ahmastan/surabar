@@ -48,7 +48,10 @@ struct ReaderView: View {
                         }
                         .background(palette.page)
                         .overlay(alignment: .bottom) {
-                            if let player { BackToPlaying(model: model, player: player, palette: palette) }
+                            if let player {
+                                BackToPlaying(model: model, player: player, palette: palette)
+                                ContinueReciting(model: model, player: player, palette: palette)
+                            }
                         }
                         overlay
                     }
@@ -404,6 +407,54 @@ private struct HeaderTitle: View {
 }
 
 /// Shown over the page bottom while recitation plays elsewhere, as Maps offers to re-centre.
+/// "Continue Al-Kahf 18:45": the recitation paused (or remembered from the last session) somewhere other than
+/// the selected ayah. Clicking it shows that ayah and plays on from it; × hides it until another pause.
+private struct ContinueReciting: View {
+    let model: ReaderModel
+    let player: RecitationPlayer
+    let palette: ReaderPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var ayah: AyahKey? {
+        guard let ayah = player.resumableAyah, model.dismissedResume != ayah, !model.readingManzil else { return nil }
+        return model.state.selectedAyah == ayah && model.isOnPage(ayah) ? nil : ayah
+    }
+
+    var body: some View {
+        ZStack {
+            if let ayah {
+                HStack(spacing: 2) {
+                    Button {
+                        model.returnToPlayback(at: ayah)
+                        player.resume()
+                    } label: {
+                        Label("Continue \(model.store?.surah(ayah.surah)?.nameSimple ?? "") \(ayah.description)", systemImage: "play.fill")
+                            .font(.callout.weight(.semibold))
+                            .padding(.leading, 14)
+                            .padding(.trailing, 6)
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show \(ayah.description) and continue the recitation from there")
+                    Button { model.dismissedResume = ayah } label: {
+                        Image(systemName: "xmark").font(.caption.weight(.bold)).padding(.horizontal, 10).padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hide")
+                    .accessibilityLabel("Hide Continue")
+                }
+                .foregroundStyle(palette.onAccent)
+                .surface(palette.glass, in: Capsule(), interactive: true, tint: palette.accent)
+                .padding(.bottom, ReaderLayout.footerHeight + 10)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9)).combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.quick, value: ayah)
+    }
+}
+
 private struct BackToPlaying: View {
     let model: ReaderModel
     let player: RecitationPlayer
